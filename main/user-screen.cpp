@@ -7,11 +7,15 @@
 #include "user-wifi.h"    // Needed for WiFi status display
 #include <Wire.h>
 
-#define SCREEN_WIDTH 128
-#define SCREEN_HEIGHT 32
+//#define SCREEN_WIDTH 128
+//#define SCREEN_HEIGHT 32
+#define SCREEN_WIDTH 72
+#define SCREEN_HEIGHT 40
 #define OLED_RESET    -1   // No reset pin
-#define I2C_SDA 3          // OLED SDA pin
-#define I2C_SCL 2          // OLED SCL pin
+//#define I2C_SDA 3          // OLED SDA pin
+#define I2C_SDA 5          // OLED SDA pin
+//#define I2C_SCL 2          // OLED SCL pin
+#define I2C_SCL 6          // OLED SCL pin
 #define OLED_ADDR 0x3C     // Common SSD1306 I2C address
 #define BUTTON_PIN 18      // GPIO for screen ON/OFF button
 
