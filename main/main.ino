@@ -1,7 +1,7 @@
 // ============================================
 //  main.ino
 // ============================================
-
+// ESP32 C6
 #include "user-led.h"      // LED control (manual/auto modes + RGB output)
 #include "user-screen.h"   // OLED display + button handling
 #include "user-wifi.h"     // Wi-Fi manager + web server update functions
