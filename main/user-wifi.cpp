@@ -392,8 +392,8 @@ void handleRoot() {
     // LED CONTROL (No Page Reload)
     // ==============================
     html += "<h2>LED Control</h2>";
-    html += "<p>Control the RGB LED (currently in " + String(ledAutoMode ? "AUTO" : "OFF") + " mode):</p>";
-    html += "<button class='on' onclick=\"led('on')\">Enable AUTO Mode</button>";
+    html += "<p>Control the RGB LED (currently " + String(ledState == HIGH ? "ON" : "OFF") + "):</p>";
+    html += "<button class='on' onclick=\"led('on')\">Turn ON</button>";
     html += "<button class='off' onclick=\"led('off')\">Turn OFF</button>";
 
     // ==============================
@@ -511,13 +511,14 @@ void handleLed() {
   String state = server.arg("state");
 
   if (state == "on") {
-    setLedAutoMode(true);
-    ledState = HIGH;        // mark that LED is active
-    server.send(200, "application/json", "{\"status\":\"LED AUTO enabled\"}");
-    Serial.println("LED AUTO enabled");
+    setLedAutoMode(false);        // manual control, not water-level auto mode
+    ledOn(255, 255, 255);         // turn the LED on (white)
+    ledState = HIGH;              // mark that LED is active
+    server.send(200, "application/json", "{\"status\":\"LED ON\"}");
+    Serial.println("LED turned ON manually");
   }
   else if (state == "off") {
-    setLedAutoMode(false);  // disable auto mode
+    setLedAutoMode(false);  // stay out of auto mode
     ledOff();               // actually turn off the LED
     ledState = LOW;         // mark LED state as OFF
     server.send(200, "application/json", "{\"status\":\"LED OFF\"}");
@@ -651,4 +652,3 @@ void handleNotFound() {
   
   server.send(404, "text/html", html);
 }
-

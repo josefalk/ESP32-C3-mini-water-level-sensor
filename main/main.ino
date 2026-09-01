@@ -1,14 +1,16 @@
 // ============================================
 //  main.ino
 // ============================================
-// ESP32 C6
+// ESP32-C3 + 0.42" 72x40 OLED (U8g2)
 #include "user-led.h"      // LED control (manual/auto modes + RGB output)
 #include "user-screen.h"   // OLED display + button handling
 #include "user-wifi.h"     // Wi-Fi manager + web server update functions
 #include "A02YYUW.h"       // Ultrasonic distance sensor driver
 
-HardwareSerial mySerial(2);           // Use UART2 for the A02YYUW sensor
-A02YYUW sensor(mySerial, 4, 5);       // RX=4, TX=5 (sensor uses serial)
+// NOTE: TX moved from GPIO5 -> GPIO7. GPIO5 is used by the OLED's I2C SDA
+// line (see user-screen.cpp), so the sensor can't share it.
+HardwareSerial mySerial(1);           // Use UART1 for the A02YYUW sensor
+A02YYUW sensor(mySerial, 4, 7);       // RX=4, TX=7
 
 void setup() {
   Serial.begin(115200);     // Debug output
@@ -34,7 +36,7 @@ void loop() {
     float fullDist = getFullDistance();
     float emptyDist = getEmptyDistance();
 
-    // Convert raw distance to percentage (0–100%)
+    // Convert raw distance to percentage (0-100%)
     float percent = (emptyDist - distance) /
                     (emptyDist - fullDist) * 100;
     percent = constrain(percent, 0, 100);
@@ -47,15 +49,15 @@ void loop() {
 
     // Auto LED color logic (only if auto mode is enabled)
     if (isLedAutoMode()) {
-      if (percent < 20)       ledOn(255, 0, 0);   // Low → Red
-      else if (percent < 70)  ledOn(255, 255, 0); // Medium → Yellow
-      else                    ledOn(0, 255, 0);   // High → Green
+      if (percent < 20)       ledOn(255, 0, 0);   // Low -> Red
+      else if (percent < 70)  ledOn(255, 255, 0); // Medium -> Yellow
+      else                    ledOn(0, 255, 0);   // High -> Green
     }
 
   } else {
     // Sensor returned an invalid value
     showText("No reading");
-    
+
     if (isLedAutoMode())
       ledOn(255, 0, 0);       // Show alert state
 
