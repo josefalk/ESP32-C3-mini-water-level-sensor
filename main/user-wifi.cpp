@@ -22,6 +22,16 @@ const int RESET_BUTTON_PIN = 0;
 unsigned long buttonPressStart = 0;
 bool buttonPressed = false;
 bool isAPMode = true;
+
+// Reconnect handling
+String savedSsid = "";
+String savedPassword = "";
+unsigned long staDisconnectedSince = 0;
+unsigned long lastStaReconnectAttempt = 0;
+unsigned long lastAPRetryAttempt = 0;
+const unsigned long STA_FALLBACK_TIMEOUT = 60000;    // give up reconnecting STA after 60s, fall back to AP
+const unsigned long STA_RECONNECT_RETRY = 5000;      // retry WiFi.reconnect() every 5s while disconnected
+const unsigned long AP_RETRY_INTERVAL = 30000;       // while in AP mode, retry saved WiFi every 30s
 void setLedAutoMode(bool state);
 bool getScreenState();
 void setScreenState(bool state);
@@ -39,6 +49,7 @@ float emptyDistance = 200.0;
 
 // Forward declarations
 void checkResetButton();
+void checkWiFiConnection();
 void connectToWiFi(const char* ssid, const char* password);
 void startAPMode();
 void handleRoot();
@@ -80,12 +91,12 @@ void initWiFi() {
   emptyDistance = preferences.getFloat("emptyDist", 200.0);
   Serial.printf("Loaded calibration: Full=%.1f cm, Empty=%.1f cm\n", fullDistance, emptyDistance);
   
-  String ssid = preferences.getString("ssid", "");
-  String password = preferences.getString("password", "");
-  
-  if (ssid.length() > 0) {
+  savedSsid = preferences.getString("ssid", "");
+  savedPassword = preferences.getString("password", "");
+
+  if (savedSsid.length() > 0) {
     Serial.println("Attempting to connect to saved WiFi...");
-    connectToWiFi(ssid.c_str(), password.c_str());
+    connectToWiFi(savedSsid.c_str(), savedPassword.c_str());
   } else {
     Serial.println("No saved WiFi credentials. Starting AP mode...");
     startAPMode();
@@ -108,6 +119,7 @@ void initWiFi() {
 void handleWiFi() {
   server.handleClient();
   checkResetButton();
+  checkWiFiConnection();
 }
 
 bool isWiFiConnected() {
@@ -169,11 +181,46 @@ void checkResetButton() {
   }
 }
 
+void checkWiFiConnection() {
+  if (!isAPMode) {
+    // Connected mode: watch for drops and try to recover before giving up
+    if (WiFi.status() != WL_CONNECTED) {
+      if (staDisconnectedSince == 0) {
+        staDisconnectedSince = millis();
+        lastStaReconnectAttempt = millis();
+        Serial.println("WiFi connection lost, attempting to reconnect...");
+        WiFi.reconnect();
+      } else if (millis() - staDisconnectedSince > STA_FALLBACK_TIMEOUT) {
+        Serial.println("Reconnect attempts timed out, falling back to AP mode...");
+        staDisconnectedSince = 0;
+        startAPMode();
+      } else if (millis() - lastStaReconnectAttempt > STA_RECONNECT_RETRY) {
+        lastStaReconnectAttempt = millis();
+        Serial.println("Still disconnected, retrying...");
+        WiFi.reconnect();
+      }
+    } else {
+      staDisconnectedSince = 0;
+    }
+    return;
+  }
+
+  // AP mode: periodically retry the saved network so a stuck device recovers on its own
+  if (savedSsid.length() == 0) return;
+
+  if (millis() - lastAPRetryAttempt < AP_RETRY_INTERVAL) return;
+  lastAPRetryAttempt = millis();
+
+  Serial.println("AP mode: retrying saved WiFi network...");
+  connectToWiFi(savedSsid.c_str(), savedPassword.c_str());
+}
+
 void connectToWiFi(const char* ssid, const char* password) {
   Serial.print("Connecting to WiFi: ");
   Serial.println(ssid);
   
   WiFi.mode(WIFI_STA);
+  WiFi.setSleep(false);   // disable modem sleep -- a common cause of random silent disconnects
   WiFi.begin(ssid, password);
   
   int attempts = 0;
