@@ -521,6 +521,7 @@ window.addEventListener('load', loadNets);
 
 void handleRoot() {
   String html = "<!DOCTYPE html><html><head>";
+  html += "<meta charset='utf-8'>";   // so symbols like ▲ ▼ 📡 show correctly
   html += "<meta name='viewport' content='width=device-width, initial-scale=1.0'>";
   html += "<style>";
   html += "body { font-family: Arial, sans-serif; margin: 20px; background: #f5f5f5; }";
@@ -823,7 +824,7 @@ window.addEventListener('load', () => {
   html += "</div>";
   html += "</body></html>";
 
-  server.send(200, "text/html", html);
+  server.send(200, "text/html; charset=utf-8", html);
 }
 
 void handleData() {
@@ -862,7 +863,7 @@ void handleGetTank() {
 void handleSetTank() {
   int count = server.arg("count").toInt();
   if (count < 0 || count > MAX_TANKS) {
-    server.send(400, "text/plain", "Error: up to " + String(MAX_TANKS) + " tanks");
+    server.send(400, "text/plain; charset=utf-8", "Error: up to " + String(MAX_TANKS) + " tanks");
     return;
   }
   TankUnit units[MAX_TANKS];
@@ -875,11 +876,11 @@ void handleSetTank() {
   }
   String err = setTankSetup(server.arg("height").toFloat(), server.arg("gap").toFloat(), units, count);
   if (err.length()) {
-    server.send(400, "text/plain", "Error: " + err);
+    server.send(400, "text/plain; charset=utf-8", "Error: " + err);
     return;
   }
   float cap = tankCapacity();
-  server.send(200, "text/plain", cap > 0 ? "Saved! Total capacity: " + String(cap, 0) + " L"
+  server.send(200, "text/plain; charset=utf-8", cap > 0 ? "Saved! Total capacity: " + String(cap, 0) + " L"
                                          : String("Saved!"));
 }
 
@@ -929,8 +930,8 @@ int argIndex() {
 }
 
 void sendResult(const String &err) {
-  if (err.length()) server.send(400, "text/plain", "Error: " + err);
-  else server.send(200, "text/plain", "OK");
+  if (err.length()) server.send(400, "text/plain; charset=utf-8", "Error: " + err);
+  else server.send(200, "text/plain; charset=utf-8", "OK");
 }
 
 // POST /wifi/save  ssid, password   (adds the network, or changes its password)
@@ -944,10 +945,10 @@ void handleSaveWifi() {
   if (isAPMode) {
     // In setup mode, try the new network right away
     requestedNetwork = findNetwork(ssid);
-    server.send(200, "text/plain", "Saved! Trying to connect to " + ssid + " now. If it works, this setup "
+    server.send(200, "text/plain; charset=utf-8", "Saved! Trying to connect to " + ssid + " now. If it works, this setup "
                 "network disappears: join " + ssid + " and open http://watertank.local");
   } else {
-    server.send(200, "text/plain", "Saved " + ssid + " as #" + String(findNetwork(ssid) + 1) + " in the list.");
+    server.send(200, "text/plain; charset=utf-8", "Saved " + ssid + " as #" + String(findNetwork(ssid) + 1) + " in the list.");
   }
 }
 
@@ -969,7 +970,7 @@ void handleUseWifi() {
     return;
   }
   requestedNetwork = i;   // done by checkWiFiConnection(), after this reply has been sent
-  server.send(200, "text/plain", "Switching to " + getNetworkSsid(i) + ". If it doesn't work, the device "
+  server.send(200, "text/plain; charset=utf-8", "Switching to " + getNetworkSsid(i) + ". If it doesn't work, the device "
               "goes back to the best network in range.");
 }
 
@@ -1016,7 +1017,7 @@ void handleLedOn() {
   html += "<p>Redirecting back...</p>";
   html += "</body></html>";
   
-  server.send(200, "text/html", html);
+  server.send(200, "text/html; charset=utf-8", html);
 }
 
 void handleLedOff() {
@@ -1034,7 +1035,7 @@ void handleLedOff() {
   html += "<p>Redirecting back...</p>";
   html += "</body></html>";
   
-  server.send(200, "text/html", html);
+  server.send(200, "text/html; charset=utf-8", html);
 }
 
 
@@ -1074,7 +1075,7 @@ void handleScreenOn() {
   html += "<p>Redirecting back...</p>";
   html += "</body></html>";
   
-  server.send(200, "text/html", html);
+  server.send(200, "text/html; charset=utf-8", html);
 }
 
 void handleScreenOff() {
@@ -1090,7 +1091,7 @@ void handleScreenOff() {
   html += "<p>Redirecting back...</p>";
   html += "</body></html>";
   
-  server.send(200, "text/html", html);
+  server.send(200, "text/html; charset=utf-8", html);
 }
 
 void handleStatus() {
@@ -1121,5 +1122,5 @@ void handleNotFound() {
   html += "<a href='/'>Go to home page</a>";
   html += "</body></html>";
   
-  server.send(404, "text/html", html);
+  server.send(404, "text/html; charset=utf-8", html);
 }
