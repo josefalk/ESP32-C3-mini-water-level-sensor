@@ -17,6 +17,7 @@ Each feature is a `user-<name>.h/.cpp` pair with an `init<Name>()` called from `
 | `A02YYUW.*` | UART ultrasonic driver (frames `FF H L SUM`, auto-falls back to 0x55 trigger). Returns cm or -1. |
 | `user-tank.*` | Tank geometry → depth, litres, percent. Up to `MAX_TANKS` parallel tanks. |
 | `user-history.*` | 24 h (5 min, RAM) and 7 day (1 h, flash) ring buffers, NTP timestamps. |
+| `user-clock.*` | NTP sync, time zone (GMT offset + summer time) via POSIX `TZ`, manual clock set. Timestamps stay UTC. |
 | `user-networks.*` | Saved Wi-Fi list (max 5, priority order) in flash; default from `secrets.h`. |
 | `user-wifi.*` | Non-blocking connection manager (scan → try saved networks in order → setup AP; 10 min check for a higher network), reset button, `WebServer` routes, the whole HTML page, mDNS, OTA, NTP. |
 | `user-screen.*` | U8g2 72x40 OLED, 3 rows (IP / reading / bar), screen toggle button. |
@@ -30,7 +31,7 @@ Keep module internals in an anonymous `namespace {}` (as in `user-tank.cpp` and 
 
 ## Flash storage (`Preferences`)
 
-Each module has its own namespace: `"wifi"` (saved networks, owned by `user-networks`; cleared by the reset button), `"tank"`, `"hist"`. Put new settings in their own namespace so a Wi-Fi reset doesn't wipe them.
+Each module has its own namespace: `"wifi"` (saved networks, owned by `user-networks`; cleared by the reset button), `"tank"`, `"hist"`, `"clock"`. Put new settings in their own namespace so a Wi-Fi reset doesn't wipe them.
 
 - Write rarely. Flash wears out, which is why history saves only once per hour. Never write from `loop()` on every reading.
 - When changing what is stored, migrate old data on first boot the way `initTank()` migrates the old `"wifi"` calibration keys.

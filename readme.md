@@ -13,6 +13,7 @@ featuring WiFi setup and live web dashboard.
 - **WiFi setup portal** (`ESP32-Config` access point) when no saved network works
 - Tank setup: height, sensor gap and up to 4 parallel tanks → litres and percent
 - 24 h / 7 day level history graph
+- **Time** settings on the web page: time zone as GMT offset (+1 h summer time switch); clock set from the internet, or from your phone when offline
 - Web page at `http://watertank.local`, firmware updates over Wi-Fi (OTA)
 - Modular C++/ESP32 code (PlatformIO)
 
@@ -41,6 +42,7 @@ esp32-distance-sensor/
 │ ├── user-tank.h / user-tank.cpp # Tank sizes -> litres and percent
 │ ├── user-history.h / user-history.cpp # 24 h / 7 day history
 │ ├── user-networks.h / user-networks.cpp # Saved Wi-Fi networks list
+│ ├── user-clock.h / user-clock.cpp # Clock (NTP) + time zone
 │ ├── user-wifi.h / user-wifi.cpp # Wi-Fi connection, web server, OTA
 │ └── secrets.example.h # Copy to secrets.h for the default Wi-Fi
 └── libraries/

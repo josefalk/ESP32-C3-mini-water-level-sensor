@@ -12,6 +12,7 @@
 #include "user-history.h"
 #include "user-tank.h"
 #include "user-networks.h"
+#include "user-clock.h"
 
 // Network name of the device: the web page is at http://watertank.local
 // and OTA uploads go to watertank.local (see platformio.ini).
@@ -94,6 +95,9 @@ void handleSaveWifi();
 void handleDeleteWifi();
 void handleMoveWifi();
 void handleUseWifi();
+void handleGetTime();
+void handleSetTime();
+void handleSetClock();
 void handleLedOn();
 void handleLedOff();
 void handleStatus();
@@ -125,8 +129,8 @@ void startNetworkServices() {
   ArduinoOTA.onError([](ota_error_t e) { Serial.printf("OTA error %u\n", e); });
   ArduinoOTA.begin();
 
-  // Real time for the history graph (UTC; the browser shows local time)
-  configTime(0, 0, "pool.ntp.org", "time.google.com");
+  // Real time from the internet (time zone: see user-clock)
+  startClockSync();
 }
 
 // Radio settings; must be applied again after every Wi-Fi mode change
@@ -164,6 +168,9 @@ void initWiFi() {
   server.on("/data", handleData);
   server.on("/tank", HTTP_GET, handleGetTank);
   server.on("/tank", HTTP_POST, handleSetTank);
+  server.on("/time", HTTP_GET, handleGetTime);
+  server.on("/time", HTTP_POST, handleSetTime);
+  server.on("/time/set", HTTP_POST, handleSetClock);
   server.on("/history", []() { server.send(200, "application/json", getHistoryJson()); });
   server.onNotFound(handleNotFound);
 
@@ -522,6 +529,80 @@ window.addEventListener('load', loadNets);
 )HTML";
 }
 
+// "Time" part of the web page: local time, time zone (GMT offset + summer
+// time), and setting the clock from the phone when there is no internet.
+void appendTimeSection(String &html) {
+  html += R"HTML(
+<h2 style='margin-top:30px'>Time</h2>
+<p style='font-size:18px'>Device time: <b id='devTime'>--</b> <small id='tzName' style='color:#666'></small></p>
+<div class='calibration-group'>
+  <div class='calibration-input'><label>Time zone:</label>
+    <select id='tzSel' style='padding:10px;border:1px solid #ddd;border-radius:5px'></select></div>
+  <div class='calibration-input'><label>Summer time:</label>
+    <label style='padding-top:10px'><input type='checkbox' id='tzSummer' style='width:auto;margin:0 6px 0 0'>+1 hour</label></div>
+</div>
+<button class='scan' onclick='useBrowserTz()'>Use this phone's time zone</button>
+<button class='save-calibration' onclick='saveTz()'>Save time zone</button>
+<p id='clockNote' style='color:#666;font-size:13px'></p>
+<script>
+let clk = null, clkAt = 0, tzMin = null;
+const fmtTz = m => 'GMT' + (m < 0 ? '-' : '+') + Math.floor(Math.abs(m) / 60) +
+                   (Math.abs(m) % 60 ? ':' + String(Math.abs(m) % 60).padStart(2, '0') : '');
+(function(){
+  const sel = document.getElementById('tzSel');
+  const half = [-570, -210, 210, 270, 330, 345, 390, 525, 570, 630, 765];
+  const list = [];
+  for (let h = -12; h <= 14; h++) list.push(h * 60);
+  list.push(...half);
+  list.sort((a, b) => a - b).forEach(m => sel.add(new Option(fmtTz(m), m)));
+})();
+function loadTime(){
+  fetch('/time').then(r=>r.json()).then(d=>{
+    const first = clk == null;
+    clk = d; clkAt = Date.now(); tzMin = d.tz;
+    if (first){
+      document.getElementById('tzSel').value = d.offset;
+      document.getElementById('tzSummer').checked = d.summer;
+    }
+    document.getElementById('tzName').textContent = '(' + fmtTz(d.tz) + ')';
+    document.getElementById('clockNote').innerHTML = d.valid
+      ? 'The clock is set from the internet automatically.'
+      : "The clock isn't set (no internet). <button class='mini on' onclick='setClockFromPhone()'>Set from this phone</button>";
+    showTime();
+    if (typeof drawChart == 'function') drawChart();
+  });
+}
+function showTime(){
+  if (!clk || !clk.valid) { document.getElementById('devTime').textContent = '--'; return; }
+  const t = clk.now + (Date.now() - clkAt) / 1000 + clk.tz * 60;
+  const d = new Date(t * 1000);
+  document.getElementById('devTime').textContent =
+    d.toLocaleDateString(undefined, {weekday:'short', day:'numeric', month:'short', timeZone:'UTC'}) + ' ' +
+    String(d.getUTCHours()).padStart(2, '0') + ':' + String(d.getUTCMinutes()).padStart(2, '0');
+}
+function useBrowserTz(){
+  const m = -new Date().getTimezoneOffset();   // includes summer time if it is on now
+  const sel = document.getElementById('tzSel');
+  if (![...sel.options].some(o => +o.value == m)) { alert('Unusual time zone: ' + fmtTz(m)); return; }
+  sel.value = m;
+  document.getElementById('tzSummer').checked = false;
+  alert('Selected ' + fmtTz(m) + '. Press "Save time zone" to keep it.');
+}
+function saveTz(){
+  const body = 'offset=' + document.getElementById('tzSel').value +
+               '&summer=' + (document.getElementById('tzSummer').checked ? 1 : 0);
+  fetch('/time', {method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body})
+    .then(r=>r.text()).then(m => { alert(m == 'OK' ? 'Time zone saved.' : m); loadTime(); });
+}
+function setClockFromPhone(){
+  fetch('/time/set', {method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'},
+    body: 'now=' + Math.floor(Date.now() / 1000)}).then(r=>r.text()).then(m => { if (m != 'OK') alert(m); loadTime(); });
+}
+window.addEventListener('load', () => { loadTime(); setInterval(showTime, 1000); setInterval(loadTime, 60000); });
+</script>
+)HTML";
+}
+
 void handleRoot() {
   String html = "<!DOCTYPE html><html><head>";
   html += "<meta charset='utf-8'>";   // so symbols like ▲ ▼ 📡 show correctly
@@ -594,6 +675,7 @@ void handleRoot() {
     html += "<div class='warning'>⚠ <strong>Setup Mode</strong><br>None of the saved Wi-Fi networks could be joined. "
             "Add or fix a network below. The device also retries the saved networks every minute.</div>";
     appendWifiSection(html);
+    appendTimeSection(html);
 
   } else {
 
@@ -756,11 +838,13 @@ function drawChart(){
   }
   // time labels: every 6 h (24 h view) or every day (7 day view)
   const tick = range=='day' ? 6*3600 : 86400;
-  const off = new Date().getTimezoneOffset() * 60;   // align ticks to local midnight
+  // Use the device's time zone (Time section); the browser's until it's loaded
+  const tz = (tzMin != null ? tzMin : -new Date().getTimezoneOffset()) * 60;
+  const off = -tz;                                    // align ticks to local midnight
   for (let t = Math.ceil((t0 - off) / tick) * tick + off; t <= now; t += tick){
-    const d = new Date(t * 1000);
-    const lbl = range=='day' ? d.getHours().toString().padStart(2,'0') + ':00'
-                             : d.toLocaleDateString(undefined, {weekday:'short'});
+    const d = new Date((t + tz) * 1000);              // read with getUTC... = device local time
+    const lbl = range=='day' ? d.getUTCHours().toString().padStart(2,'0') + ':00'
+                             : d.toLocaleDateString(undefined, {weekday:'short', timeZone:'UTC'});
     s += `<line x1='${x(t)}' x2='${x(t)}' y1='${T}' y2='${H-B}' stroke='#f0f0f0'/>`;
     s += `<text x='${x(t)}' y='${H-8}' text-anchor='middle' font-size='11' fill='#888'>${lbl}</text>`;
   }
@@ -807,6 +891,7 @@ window.addEventListener('load', () => {
     html += "<button class='on' onclick=\"screen('on')\">Turn Screen ON</button>";
     html += "<button class='off' onclick=\"screen('off')\">Turn Screen OFF</button>";
 
+    appendTimeSection(html);
     appendWifiSection(html);
   }
 
@@ -975,6 +1060,39 @@ void handleUseWifi() {
   requestedNetwork = i;   // done by checkWiFiConnection(), after this reply has been sent
   server.send(200, "text/plain; charset=utf-8", "Switching to " + getNetworkSsid(i) + ". If it doesn't work, the device "
               "goes back to the best network in range.");
+}
+
+// GET /time -> {"now":1795032772,"valid":true,"offset":180,"summer":false,"tz":180,"local":"Wed 18 Nov 23:11"}
+// offset = minutes from GMT without summer time, tz = total offset used for display
+void handleGetTime() {
+  String json = "{\"now\":" + String((uint32_t)time(nullptr));
+  json += ",\"valid\":" + String(isClockValid() ? "true" : "false");
+  json += ",\"offset\":" + String(getClockOffset());
+  json += ",\"summer\":" + String(getClockSummerTime() ? "true" : "false");
+  json += ",\"tz\":" + String(getClockTotalOffset());
+  json += ",\"local\":" + jsonStr(getClockLocalText());
+  json += "}";
+  server.send(200, "application/json", json);
+}
+
+// POST /time  offset (minutes from GMT), summer (1/0)
+void handleSetTime() {
+  if (!server.hasArg("offset")) {
+    sendResult("Choose a time zone");
+    return;
+  }
+  sendResult(setClockZone(server.arg("offset").toInt(), server.arg("summer") == "1"));
+}
+
+// POST /time/set  now (unix seconds, UTC) -- set the clock from the browser
+void handleSetClock() {
+  uint32_t t = strtoul(server.arg("now").c_str(), nullptr, 10);
+  if (t < 1700000000UL) {
+    sendResult("Invalid time");
+    return;
+  }
+  setClockManual(t);
+  sendResult("");
 }
 
 void handleLed() {
