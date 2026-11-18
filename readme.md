@@ -26,7 +26,7 @@ The web page has a **Wi-Fi Networks** list (up to 5). The order is the priority:
 - If no network works, it opens the `ESP32-Config` setup network (page at `http://192.168.4.1`) and keeps retrying the list every minute.
 - On the page: **▲ / ▼** change the priority, **Connect** switches to a network now, **✕** deletes it. Saving a name that is already in the list changes its password.
 - The intervals are constants at the top of the connection manager in `main/user-wifi.cpp`.
-- A new board (or one reset with the GPIO 0 button) starts with the network from `main/secrets.h` (copy `main/secrets.example.h` to make it).
+- A new board (or one reset with the BOOT button) starts with the network from `main/secrets.h` (copy `main/secrets.example.h` to make it).
 
 ##  Project Structure
 
@@ -83,7 +83,7 @@ The status LED is the board's onboard single-color LED, driven directly on **GPI
 | Button              | ESP32-C3 Pin | Other side | Behavior                          |
 |----------------------|--------------|------------|------------------------------------|
 | Screen toggle button | GPIO 3       | GND        | Short press: toggle OLED on/off    |
-| WiFi reset button     | GPIO 0       | GND        | Hold 3 seconds: forgets all saved Wi-Fi networks |
+| WiFi reset = board's **BOOT** button | GPIO 9 (built-in) | — | Hold 3 seconds while running: forgets all saved Wi-Fi networks |
 
 ---
 
@@ -96,15 +96,14 @@ The status LED is the board's onboard single-color LED, driven directly on **GPI
 | GND            | A02YYUW BLACK       |
 | GND            | SSD1306 GND         |
 | GND            | Screen toggle button |
-| GND            | WiFi reset button    |
 | 3.3V           | SSD1306 VCC         |
-| GPIO 0         | WiFi reset button    |
 | GPIO 3         | Screen toggle button |
 | GPIO 4         | A02YYUW White (RX)  |
 | GPIO 5         | SSD1306 I2C_SDA     |
 | GPIO 6         | SSD1306 I2C_SCL     |
 | GPIO 7         | A02YYUW Yellow (TX) |
 | GPIO 8         | Onboard LED (built-in) |
+| GPIO 9         | BOOT button (built-in): Wi-Fi reset |
 
 
 ## Screen shot of Webserver:
@@ -132,4 +131,4 @@ The status LED is the board's onboard single-color LED, driven directly on **GPI
 - **Buttons**:
   - **Power switch**: Turns the device on/off (inline, not GPIO-controlled)
   - **Screen toggle button** (GPIO 3): Turns OLED display on/off
-  - **WiFi reset button** (GPIO 0): Hold 3 seconds to forget all saved Wi-Fi networks
+  - **WiFi reset**: the board's own **BOOT** button (GPIO 9). Hold 3 seconds while running to forget all saved Wi-Fi networks

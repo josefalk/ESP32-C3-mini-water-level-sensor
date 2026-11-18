@@ -26,7 +26,7 @@ Keep module internals in an anonymous `namespace {}` (as in `user-tank.cpp` and 
 
 ## Pins already in use (don't reuse)
 
-GPIO 0 Wi-Fi reset button (hold 3 s) · 3 screen button · 4 sensor RX · 5 OLED SDA · 6 OLED SCL · 7 sensor TX · 8 LED · **18/19 = native USB, never use.**
+3 screen button · 4 sensor RX · 5 OLED SDA · 6 OLED SCL · 7 sensor TX · 8 LED · 9 on-board BOOT button = Wi-Fi reset (hold 3 s) · **18/19 = native USB, never use.** GPIO 0 is free.
 
 ## Flash storage (`Preferences`)
 

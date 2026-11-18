@@ -29,7 +29,10 @@ WebServer server(80);
 
 // Variables
 int ledState = LOW;
-const int RESET_BUTTON_PIN = 0;
+// Wi-Fi reset = the board's own BOOT button (GPIO 9), no extra wiring needed.
+// Hold it 3 s while the board is running. (Holding BOOT while pressing RESET
+// or plugging in USB starts firmware-download mode instead -- that's normal.)
+const int RESET_BUTTON_PIN = 9;
 unsigned long buttonPressStart = 0;
 bool buttonPressed = false;
 bool isAPMode = false;    // true while the setup Access Point is on
@@ -819,7 +822,7 @@ window.addEventListener('load', () => {
     html += "<p>SSID: " + WiFi.SSID() + "</p>";
     html += "<p>RSSI: " + String(WiFi.RSSI()) + " dBm</p>";
   }
-  html += "<p><small>Hold the GPIO 0 button for 3 seconds to forget all saved Wi-Fi networks</small></p>";
+  html += "<p><small>Hold the BOOT button on the board for 3 seconds to forget all saved Wi-Fi networks</small></p>";
   html += "</div>";
   html += "</div>";
   html += "</body></html>";
