@@ -9,6 +9,7 @@
 void initWiFi();
 void handleWiFi();
 bool isWiFiConnected();
+bool isWiFiAPMode();                  // setup Access Point is on (no saved network worked)
 String getWiFiIP();
 void updateSensorData(float distance, float percent);
 void setSensorInvalid();              // sensor stopped answering

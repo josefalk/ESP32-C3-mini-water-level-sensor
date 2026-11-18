@@ -33,9 +33,11 @@ static void drawIPRow() {
   u8g2.setCursor(0, 6);
   if (isWiFiConnected()) {
     u8g2.print(getWiFiIP());
-  } else {
+  } else if (isWiFiAPMode()) {
     u8g2.print("AP:");
     u8g2.print(getWiFiIP());
+  } else {
+    u8g2.print("WiFi connecting");   // switching or looking for a saved network
   }
 }
 

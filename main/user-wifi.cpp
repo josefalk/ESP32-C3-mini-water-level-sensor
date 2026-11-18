@@ -6,12 +6,12 @@
 #include "user-screen.h"
 #include <WiFi.h>
 #include <WebServer.h>
-#include <Preferences.h>
 #include <ESPmDNS.h>
 #include <ArduinoOTA.h>
 #include <time.h>
 #include "user-history.h"
 #include "user-tank.h"
+#include "user-networks.h"
 
 // Network name of the device: the web page is at http://watertank.local
 // and OTA uploads go to watertank.local (see platformio.ini).
@@ -20,45 +20,54 @@ const char* HOSTNAME = "watertank";
 #define OTA_PASSWORD "watertank-ota"   // set in platformio.ini build_flags
 #endif
 
-// Access Point credentials
+// Setup Access Point, started when none of the saved networks work
 const char* ap_ssid = "ESP32-Config";
 const char* ap_password = "";
 
-// Default WiFi network to connect to on first boot (used only if no
-// credentials have been saved yet via the AP setup page).
-// They live in secrets.h, which is NOT uploaded to GitHub. To set them,
-// copy secrets.example.h to secrets.h and fill in your network.
-// Without secrets.h the board starts in setup (AP) mode on first boot.
-#if __has_include("secrets.h")
-#include "secrets.h"
-#endif
-#ifndef DEFAULT_WIFI_SSID
-#define DEFAULT_WIFI_SSID ""
-#define DEFAULT_WIFI_PASSWORD ""
-#endif
-const char* DEFAULT_SSID = DEFAULT_WIFI_SSID;
-const char* DEFAULT_PASSWORD = DEFAULT_WIFI_PASSWORD;
-
 // Create web server on port 80
 WebServer server(80);
-Preferences preferences;
 
 // Variables
 int ledState = LOW;
 const int RESET_BUTTON_PIN = 0;
 unsigned long buttonPressStart = 0;
 bool buttonPressed = false;
-bool isAPMode = true;
+bool isAPMode = false;    // true while the setup Access Point is on
 
-// Reconnect handling
-String savedSsid = "";
-String savedPassword = "";
-unsigned long staDisconnectedSince = 0;
-unsigned long lastStaReconnectAttempt = 0;
-unsigned long lastAPRetryAttempt = 0;
-const unsigned long STA_FALLBACK_TIMEOUT = 60000;    // give up reconnecting STA after 60s, fall back to AP
-const unsigned long STA_RECONNECT_RETRY = 5000;      // retry WiFi.reconnect() every 5s while disconnected
-const unsigned long AP_RETRY_INTERVAL = 30000;       // while in AP mode, retry saved WiFi every 30s
+// ---------------- Wi-Fi connection manager ----------------
+// The saved networks (user-networks.h) are tried in list order: the first
+// one that is in range and accepts the password wins. If none work, the
+// setup Access Point starts and the list is tried again every minute.
+// While connected to a lower network, the device checks every
+// PRIORITY_CHECK_INTERVAL whether a higher one (e.g. the main network) is
+// in range again, and switches to it.
+// Everything runs step by step from loop(), so the sensor, screen and web
+// page keep working while it connects.
+const unsigned long CONNECT_TIMEOUT = 15000;                  // time one network gets to connect
+const unsigned long SCAN_TIMEOUT = 15000;                     // a scan normally takes 2-4 s
+const unsigned long LOST_GRACE = 20000;                       // after a drop, retry the same network this long...
+const unsigned long RECONNECT_RETRY = 5000;                   // ...calling WiFi.reconnect() every 5 s
+const unsigned long AP_RETRY_INTERVAL = 60000;                // in setup mode, retry the saved networks every 60 s
+const unsigned long PRIORITY_CHECK_INTERVAL = 10 * 60000UL;   // on a lower network, look for a higher one every 10 min
+
+enum WifiState {
+  W_SCANNING,     // looking for which saved networks are in range
+  W_CONNECTING,   // trying one network
+  W_CONNECTED,    // online
+  W_AP,           // setup Access Point on, waiting to retry
+};
+WifiState wState = W_AP;
+unsigned long stateSince = 0;          // when the current state started
+
+bool priorityScan = false;             // true: online, only looking for a higher network
+int candidates[MAX_NETWORKS];          // networks to try, best first (positions in the saved list)
+int candidateCount = 0, candidatePos = 0;
+bool searchIfAllFail = false;          // when all candidates fail: true = scan again, false = setup mode
+int requestedNetwork = -1;             // set by the web page: connect to this one now
+
+String currentSsid = "";
+unsigned long lostSince = 0, lastReconnect = 0, lastPriorityCheck = 0, lastAPRetry = 0;
+
 void setLedAutoMode(bool state);
 bool getScreenState();
 void setScreenState(bool state);
@@ -73,11 +82,15 @@ bool sensorDataValid = false;
 // Forward declarations
 void checkResetButton();
 void checkWiFiConnection();
-void connectToWiFi(const char* ssid, const char* password);
+void startScan(bool priority);
 void startAPMode();
 void handleRoot();
 void handleScan();
-void handleConnect();
+void handleGetWifi();
+void handleSaveWifi();
+void handleDeleteWifi();
+void handleMoveWifi();
+void handleUseWifi();
 void handleLedOn();
 void handleLedOff();
 void handleStatus();
@@ -89,7 +102,8 @@ void handleGetTank();
 void handleSetTank();
 
 // ---------------- mDNS, OTA, clock ----------------
-// Started once, the first time we join a Wi-Fi network.
+// Started once, the first time we join a Wi-Fi network. They keep working
+// when the device later switches to another network.
 bool networkServicesStarted = false;
 
 void startNetworkServices() {
@@ -112,36 +126,44 @@ void startNetworkServices() {
   configTime(0, 0, "pool.ntp.org", "time.google.com");
 }
 
+// Radio settings; must be applied again after every Wi-Fi mode change
+void setRadio() {
+  // ESP32-C3 Super Mini boards have a poorly matched antenna: at full TX power
+  // the signal is distorted and neither STA nor AP works. Lower power fixes it.
+  WiFi.setTxPower(WIFI_POWER_8_5dBm);
+  WiFi.setSleep(false);   // disable modem sleep -- a common cause of random silent disconnects
+}
+
 void initWiFi() {
   pinMode(RESET_BUTTON_PIN, INPUT_PULLUP);
-  
-  preferences.begin("wifi", false);
-  
-  savedSsid = preferences.getString("ssid", "");
-  savedPassword = preferences.getString("password", "");
+  initNetworks();
 
-  if (savedSsid.length() == 0) {
-    // No credentials saved yet -- fall back to the built-in default network
-    // instead of dropping straight into AP config mode.
-    Serial.println("No saved WiFi credentials. Using default network...");
-    savedSsid = DEFAULT_SSID;
-    savedPassword = DEFAULT_PASSWORD;
+  WiFi.mode(WIFI_STA);
+  setRadio();
+  if (getNetworkCount() > 0) {
+    Serial.println("Wi-Fi: looking for saved networks...");
+    startScan(false);   // setup mode starts only if none of them work
+  } else {
+    Serial.println("Wi-Fi: no saved networks");
+    startAPMode();
   }
 
-  Serial.println("Attempting to connect to WiFi...");
-  connectToWiFi(savedSsid.c_str(), savedPassword.c_str());
   server.on("/led", handleLed);
   server.on("/screen", handleScreen);
   server.on("/", handleRoot);
   server.on("/scan", handleScan);
-  server.on("/connect", HTTP_POST, handleConnect);
+  server.on("/wifi", HTTP_GET, handleGetWifi);
+  server.on("/wifi/save", HTTP_POST, handleSaveWifi);
+  server.on("/wifi/delete", HTTP_POST, handleDeleteWifi);
+  server.on("/wifi/move", HTTP_POST, handleMoveWifi);
+  server.on("/wifi/use", HTTP_POST, handleUseWifi);
   server.on("/status", handleStatus);
   server.on("/data", handleData);
   server.on("/tank", HTTP_GET, handleGetTank);
   server.on("/tank", HTTP_POST, handleSetTank);
   server.on("/history", []() { server.send(200, "application/json", getHistoryJson()); });
   server.onNotFound(handleNotFound);
-  
+
   server.begin();
   Serial.println("HTTP server started");
 }
@@ -155,6 +177,10 @@ void handleWiFi() {
 
 bool isWiFiConnected() {
   return !isAPMode && WiFi.status() == WL_CONNECTED;
+}
+
+bool isWiFiAPMode() {
+  return isAPMode;
 }
 
 String getWiFiIP() {
@@ -181,18 +207,18 @@ void setSensorInvalid() {
 
 void checkResetButton() {
   int buttonState = digitalRead(RESET_BUTTON_PIN);
-  
+
   if (buttonState == LOW && !buttonPressed) {
     buttonPressed = true;
     buttonPressStart = millis();
     Serial.println("WiFi reset button pressed...");
   } else if (buttonState == LOW && buttonPressed) {
     unsigned long pressDuration = millis() - buttonPressStart;
-    
+
     if (pressDuration >= 3000) {
       Serial.println("Reset button held for 3 seconds!");
-      Serial.println("Clearing WiFi credentials and restarting in AP mode...");
-      
+      Serial.println("Forgetting all saved Wi-Fi networks and restarting...");
+
       ledOn(255, 0, 0);
       delay(500);
       ledOff();
@@ -200,13 +226,12 @@ void checkResetButton() {
       ledOn(255, 0, 0);
       delay(500);
       ledOff();
-      
-      preferences.clear();
-      preferences.end();
-      
+
+      clearNetworks();
+
       Serial.println("Restarting...");
       delay(500);
-      
+
       ESP.restart();
     }
   } else if (buttonState == HIGH && buttonPressed) {
@@ -216,116 +241,282 @@ void checkResetButton() {
   }
 }
 
-void checkWiFiConnection() {
-  if (!isAPMode) {
-    // Connected mode: watch for drops and try to recover before giving up
-    if (WiFi.status() != WL_CONNECTED) {
-      if (staDisconnectedSince == 0) {
-        staDisconnectedSince = millis();
-        lastStaReconnectAttempt = millis();
-        Serial.println("WiFi connection lost, attempting to reconnect...");
-        WiFi.reconnect();
-      } else if (millis() - staDisconnectedSince > STA_FALLBACK_TIMEOUT) {
-        Serial.println("Reconnect attempts timed out, falling back to AP mode...");
-        staDisconnectedSince = 0;
-        startAPMode();
-      } else if (millis() - lastStaReconnectAttempt > STA_RECONNECT_RETRY) {
-        lastStaReconnectAttempt = millis();
-        Serial.println("Still disconnected, retrying...");
-        WiFi.reconnect();
-      }
-    } else {
-      staDisconnectedSince = 0;
-    }
-    return;
-  }
+// ---- Connection manager steps ----
 
-  // AP mode: periodically retry the saved network so a stuck device recovers on its own
-  if (savedSsid.length() == 0) return;
-
-  if (millis() - lastAPRetryAttempt < AP_RETRY_INTERVAL) return;
-  lastAPRetryAttempt = millis();
-
-  Serial.println("AP mode: retrying saved WiFi network...");
-  connectToWiFi(savedSsid.c_str(), savedPassword.c_str());
+void setState(WifiState s) {
+  wState = s;
+  stateSince = millis();
 }
 
-void connectToWiFi(const char* ssid, const char* password) {
-  Serial.print("Connecting to WiFi: ");
-  Serial.println(ssid);
-  
-  WiFi.mode(WIFI_STA);
-  // ESP32-C3 Super Mini boards have a poorly matched antenna: at full TX power
-  // the signal is distorted and neither STA nor AP works. Lower power fixes it.
-  WiFi.setTxPower(WIFI_POWER_8_5dBm);
-  WiFi.setSleep(false);   // disable modem sleep -- a common cause of random silent disconnects
-  WiFi.begin(ssid, password);
-  
-  int attempts = 0;
-  while (WiFi.status() != WL_CONNECTED && attempts < 20) {
-    delay(500);
-    Serial.print(".");
-    ledOn(0, 0, 255);
-    delay(100);
-    ledOff();
-    attempts++;
-  }
-  
-  if (WiFi.status() == WL_CONNECTED) {
-    Serial.println();
-    Serial.println("WiFi connected successfully!");
-    Serial.print("IP address: ");
-    Serial.println(WiFi.localIP());
-    isAPMode = false;
-    startNetworkServices();
+// Position of the current network in the saved list (0 = main).
+// A network that isn't in the list (any more) ranks below all saved ones.
+int currentRank() {
+  int i = findNetwork(currentSsid);
+  return i < 0 ? getNetworkCount() : i;
+}
 
-    ledOn(0, 255, 0);
-    delay(1000);
-    ledOff();
+// Start a background scan; the result is picked up in checkWiFiConnection()
+void startScan(bool priority) {
+  priorityScan = priority;
+  WiFi.scanDelete();
+  WiFi.scanNetworks(true);
+  setState(W_SCANNING);
+}
+
+void connectToCandidate() {
+  int i = candidates[candidatePos];
+  Serial.printf("Wi-Fi: trying '%s' (#%d in the list)\n", getNetworkSsid(i).c_str(), i + 1);
+  WiFi.disconnect();
+  WiFi.begin(getNetworkSsid(i).c_str(), getNetworkPassword(i).c_str());
+  setState(W_CONNECTING);
+}
+
+void onConnected() {
+  currentSsid = WiFi.SSID();
+  if (isAPMode) {
+    WiFi.softAPdisconnect(true);   // setup network not needed any more
+    isAPMode = false;
+    setRadio();
+  }
+  Serial.printf("Wi-Fi: connected to '%s', IP %s, signal %d dBm\n",
+                currentSsid.c_str(), WiFi.localIP().toString().c_str(), WiFi.RSSI());
+  if (currentRank() > 0)
+    Serial.printf("Wi-Fi: not the main network; checking for a higher one every %lu min\n",
+                  PRIORITY_CHECK_INTERVAL / 60000);
+  lostSince = 0;
+  lastPriorityCheck = millis();
+  setState(W_CONNECTED);
+  startNetworkServices();
+}
+
+// Every network in the candidate list failed
+void candidatesFailed() {
+  if (searchIfAllFail) {
+    startScan(false);          // fall back to the best network that is in range
   } else {
-    Serial.println();
-    Serial.printf("Failed to connect to WiFi (status code %d: 1=network not found, 4=wrong password/rejected, 6=disconnected)\n",
-                  (int)WiFi.status());
-    // Diagnose: is the network visible at all, and how strong is it?
-    int n = WiFi.scanNetworks();
-    bool found = false;
-    Serial.printf("Networks the ESP can see (2.4 GHz only): %d\n", n);
-    for (int i = 0; i < n; i++) {
-      Serial.printf("  %-32s  signal %d dBm  channel %d\n",
-                    WiFi.SSID(i).c_str(), WiFi.RSSI(i), WiFi.channel(i));
-      if (WiFi.SSID(i) == ssid) found = true;
-    }
-    if (!found)
-      Serial.printf(">> '%s' NOT visible: router is 5 GHz only, too far away, or name is different\n", ssid);
-    else
-      Serial.printf(">> '%s' IS visible, so the password is probably wrong\n", ssid);
-    WiFi.scanDelete();
-    Serial.println("Starting AP mode for configuration...");
+    Serial.println("Wi-Fi: none of the saved networks worked");
     startAPMode();
   }
 }
 
+// found = number of networks the scan saw, or < 0 if the scan failed
+void onScanDone(int found) {
+  if (priorityScan && found < 0) {   // couldn't scan: just stay where we are
+    setState(W_CONNECTED);
+    return;
+  }
+
+  // Saved networks that are in range, best first. A priority scan only
+  // looks at the networks above the current one.
+  int limit = priorityScan ? currentRank() : getNetworkCount();
+  candidateCount = 0;
+  candidatePos = 0;
+  for (int i = 0; i < limit; i++) {
+    bool visible = found < 0;        // scan failed: try them all
+    for (int j = 0; j < found && !visible; j++)
+      visible = WiFi.SSID(j) == getNetworkSsid(i);
+    if (visible) candidates[candidateCount++] = i;
+  }
+  if (found >= 0 && !priorityScan) {
+    Serial.printf("Wi-Fi: %d of %d saved networks in range\n", candidateCount, getNetworkCount());
+    if (candidateCount == 0) {
+      // Show what the board can see, to help find the problem
+      Serial.printf("  Networks the ESP can see (2.4 GHz only): %d\n", found);
+      for (int j = 0; j < found; j++)
+        Serial.printf("    %-32s  signal %d dBm\n", WiFi.SSID(j).c_str(), WiFi.RSSI(j));
+    }
+  }
+  WiFi.scanDelete();
+
+  if (priorityScan) {
+    if (candidateCount == 0) {       // nothing better in range: stay
+      setState(W_CONNECTED);
+      return;
+    }
+    Serial.printf("Wi-Fi: higher network '%s' is in range, switching\n",
+                  getNetworkSsid(candidates[0]).c_str());
+    searchIfAllFail = true;          // if it doesn't work, go back to any network
+    connectToCandidate();
+    return;
+  }
+
+  searchIfAllFail = false;
+  if (candidateCount > 0) connectToCandidate();
+  else candidatesFailed();
+}
+
 void startAPMode() {
-  WiFi.mode(WIFI_AP);
-  WiFi.softAP(ap_ssid, ap_password);
-  WiFi.setTxPower(WIFI_POWER_8_5dBm);   // see note in connectToWiFi()
-  
-  Serial.println("=============================");
-  Serial.println("AP Mode Started");
-  Serial.println("=============================");
-  Serial.print("SSID: ");
-  Serial.println(ap_ssid);
-  Serial.print("IP Address: ");
-  Serial.println(WiFi.softAPIP());
-  Serial.println("Connect to this network and");
-  Serial.println("go to http://192.168.4.1");
-  Serial.println("=============================");
-  
-  isAPMode = true;
-  
-  ledOn(128, 0, 128);
-  delay(500);
-  ledOff();
+  WiFi.disconnect();                 // stop the station from searching on its own
+  if (!isAPMode) {
+    // AP for the setup page + station, so the saved networks can still be retried
+    WiFi.mode(WIFI_AP_STA);
+    WiFi.softAP(ap_ssid, ap_password);
+    setRadio();
+    isAPMode = true;
+    Serial.printf("Setup mode: join Wi-Fi '%s' and open http://%s\n",
+                  ap_ssid, WiFi.softAPIP().toString().c_str());
+  }
+  lastAPRetry = millis();
+  setState(W_AP);
+}
+
+// Runs every loop(): moves the connection manager one step forward
+void checkWiFiConnection() {
+  unsigned long now = millis();
+
+  // "Connect" button on the web page (can't start while a scan is running)
+  if (requestedNetwork >= 0 && wState != W_SCANNING) {
+    candidates[0] = requestedNetwork;
+    candidateCount = 1;
+    candidatePos = 0;
+    requestedNetwork = -1;
+    searchIfAllFail = true;          // if it doesn't work, go back to the best network in range
+    connectToCandidate();
+    return;
+  }
+
+  switch (wState) {
+    case W_SCANNING: {
+      int found = WiFi.scanComplete();
+      if (found == WIFI_SCAN_RUNNING) {
+        if (now - stateSince < SCAN_TIMEOUT) break;
+        found = WIFI_SCAN_FAILED;
+      }
+      onScanDone(found);
+      break;
+    }
+
+    case W_CONNECTING:
+      if (WiFi.status() == WL_CONNECTED) {
+        onConnected();
+      } else if (now - stateSince > CONNECT_TIMEOUT) {
+        int st = WiFi.status();
+        Serial.printf("Wi-Fi: '%s' failed (%s)\n", getNetworkSsid(candidates[candidatePos]).c_str(),
+                      st == WL_NO_SSID_AVAIL ? "not in range" :
+                      st == WL_CONNECT_FAILED ? "wrong password?" : "timed out");
+        if (++candidatePos < candidateCount) connectToCandidate();
+        else candidatesFailed();
+      }
+      break;
+
+    case W_CONNECTED:
+      if (WiFi.status() == WL_CONNECTED) {
+        lostSince = 0;
+        if (currentRank() > 0 && now - lastPriorityCheck > PRIORITY_CHECK_INTERVAL) {
+          lastPriorityCheck = now;
+          startScan(true);
+        }
+      } else if (lostSince == 0) {
+        lostSince = lastReconnect = now;
+        Serial.printf("Wi-Fi: lost connection to '%s', reconnecting...\n", currentSsid.c_str());
+        WiFi.reconnect();
+      } else if (now - lostSince > LOST_GRACE) {
+        Serial.println("Wi-Fi: still disconnected, trying the other saved networks");
+        lostSince = 0;
+        startScan(false);
+      } else if (now - lastReconnect > RECONNECT_RETRY) {
+        lastReconnect = now;
+        WiFi.reconnect();
+      }
+      break;
+
+    case W_AP:
+      if (getNetworkCount() > 0 && now - lastAPRetry > AP_RETRY_INTERVAL) startScan(false);
+      break;
+  }
+}
+
+// Quote a string for JSON (network names may contain quotes)
+String jsonStr(const String &s) {
+  String out = "\"";
+  for (unsigned i = 0; i < s.length(); i++) {
+    char c = s[i];
+    if ((uint8_t)c < 0x20) continue;
+    if (c == '"' || c == '\\') out += '\\';
+    out += c;
+  }
+  return out + "\"";
+}
+
+// "Wi-Fi Networks" part of the web page: the saved list (reorder, switch,
+// delete) and a form to add a network. Shown both online and in setup mode.
+void appendWifiSection(String &html) {
+  html += R"HTML(
+<h2 style='margin-top:30px'>Wi-Fi Networks</h2>
+<p style='color:#666;font-size:14px'>The device joins the highest network in this list that works.
+  When it is on a lower one, it checks every <span id='chkMin'>10</span> minutes whether a higher one
+  is back in range and switches to it. If none work, it opens the <b>ESP32-Config</b> setup network.</p>
+<div id='netList'><p>Loading...</p></div>
+<h3 style='color:#666'>Add a network</h3>
+<button class='scan' onclick='scanNetworks()'>📡 Scan Networks</button>
+<div id='networks' class='network-list'></div>
+<input type='text' id='ssid' placeholder='Network name (SSID)' maxlength='32'>
+<input type='password' id='password' placeholder='Password (empty for an open network)' maxlength='63'>
+<button class='connect-btn' onclick='saveNet()'>Save network</button>
+<p style='color:#888;font-size:13px'>New networks go to the bottom of the list; use ▲ to make one the main network.
+  Saving a name that is already in the list changes its password.</p>
+<script>
+let nets = [], scanned = [];
+function esc(s){ return String(s).replace(/[&<>"']/g, c => '&#' + c.charCodeAt(0) + ';'); }
+function post(url, body){
+  return fetch(url, {method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body})
+    .then(r => r.text());
+}
+function loadNets(){
+  fetch('/wifi').then(r=>r.json()).then(d=>{
+    nets = d.nets;
+    document.getElementById('chkMin').textContent = d.checkMins;
+    let h = '';
+    nets.forEach((s, i) => {
+      const on = s == d.current;
+      h += `<div class='network-item' style='display:flex;align-items:center;gap:6px;cursor:default'>
+        <div style='flex:1;overflow-wrap:anywhere'><b>${i+1}. ${esc(s)}</b>${i==0 ? ' <small>(main)</small>' : ''}
+          ${on ? "<br><small style='color:#4CAF50'>● connected</small>" : ''}</div>
+        <button class='mini' title='Higher priority' onclick='moveNet(${i},-1)' ${i==0 ? 'disabled' : ''}>▲</button>
+        <button class='mini' title='Lower priority' onclick='moveNet(${i},1)' ${i==nets.length-1 ? 'disabled' : ''}>▼</button>
+        ${on ? '' : `<button class='mini on' onclick='useNet(${i})'>Connect</button>`}
+        <button class='mini off' title='Delete' onclick='delNet(${i})'>✕</button></div>`;
+    });
+    document.getElementById('netList').innerHTML = h || '<p>No networks saved yet.</p>';
+  });
+}
+function moveNet(i, dir){ post('/wifi/move', `i=${i}&dir=${dir}`).then(m => { if (m != 'OK') alert(m); loadNets(); }); }
+function delNet(i){
+  if (!confirm(`Delete "${nets[i]}" from the list?`)) return;
+  post('/wifi/delete', 'i=' + i).then(m => { if (m != 'OK') alert(m); loadNets(); });
+}
+function useNet(i){
+  if (!confirm(`Switch to "${nets[i]}" now?\n\nThis page will lose its connection. Join that network ` +
+               `on your phone or PC and open http://watertank.local again.`)) return;
+  post('/wifi/use', 'i=' + i).then(m => alert(m));
+}
+function saveNet(){
+  const s = document.getElementById('ssid').value, p = document.getElementById('password').value;
+  if (!s){ alert('Enter the network name'); return; }
+  post('/wifi/save', 'ssid=' + encodeURIComponent(s) + '&password=' + encodeURIComponent(p)).then(m => {
+    alert(m);
+    if (!m.startsWith('Error')){ document.getElementById('password').value = ''; loadNets(); }
+  });
+}
+function scanNetworks(){
+  const box = document.getElementById('networks');
+  box.innerHTML = '<p>Scanning...</p>';
+  fetch('/scan').then(r=>r.json()).then(d=>{
+    if (d.busy){ box.innerHTML = '<p>The device is busy connecting. Try again in a few seconds.</p>'; return; }
+    scanned = d.networks;
+    box.innerHTML = scanned.map((n, i) => `<div class='network-item' onclick='pickNet(${i})'>
+      <strong>${esc(n.ssid)}</strong> (${n.rssi} dBm)${n.secure ? ' 🔒' : ' (open)'}</div>`).join('')
+      || '<p>No networks found.</p>';
+  });
+}
+function pickNet(i){
+  document.getElementById('ssid').value = scanned[i].ssid;
+  document.getElementById('password').value = '';
+  if (scanned[i].secure) document.getElementById('password').focus();
+}
+window.addEventListener('load', loadNets);
+</script>
+)HTML";
 }
 
 void handleRoot() {
@@ -363,6 +554,7 @@ void handleRoot() {
   html += ".save-calibration { background-color: #FF9800; width: 100%; }";
   html += ".range { background:#e0e0e0; color:#333; padding:8px 16px; } .range.on { background:#2196F3; color:white; }";
   html += "select { width:100%; font-size:16px; }";
+  html += ".mini { padding:6px 10px; margin:0; font-size:14px; background:#607D8B; } .mini.on { background:#4CAF50; } .mini.off { background:#f44336; } button:disabled { opacity:0.3; cursor:default; }";
   html += "</style>";
   html += "<script>";
 
@@ -389,49 +581,15 @@ void handleRoot() {
   html += "setInterval(updateSensorData, 1000);";
   html += "updateSensorData();";
 
-  // Network scanning
-  html += "function scanNetworks() {";
-  html += "  document.getElementById('networks').innerHTML = '<p>Scanning...</p>';";
-  html += "  fetch('/scan').then(r => r.json()).then(data => {";
-  html += "    let html = '';";
-  html += "    data.networks.forEach(n => {";
-  html += "      html += '<div class=\"network-item\" onclick=\"selectNetwork(\\''+n.ssid+'\\','+n.secure+')\">';";
-  html += "      html += '<strong>'+n.ssid+'</strong> ('+n.rssi+' dBm) '+(n.secure ? ' (SECURE) ' : ' (OPEN) ');";
-  html += "      html += '</div>';"; 
-  html += "    });";
-  html += "    document.getElementById('networks').innerHTML = html;"; 
-  html += "  });";
-  html += "}";
-  html += "function selectNetwork(ssid, secure) {";
-  html += "  document.getElementById('ssid').value = ssid;";
-  html += "  if (!secure) document.getElementById('password').value = '';";
-  html += "}";
-  html += "function connectWiFi() {";
-  html += "  const ssid = document.getElementById('ssid').value;";
-  html += "  const password = document.getElementById('password').value;";
-  html += "  if (!ssid) { alert('Please enter SSID'); return; }";
-  html += "  fetch('/connect', {";
-  html += "    method: 'POST',";
-  html += "    headers: {'Content-Type': 'application/x-www-form-urlencoded'},";
-  html += "    body: 'ssid='+encodeURIComponent(ssid)+'&password='+encodeURIComponent(password)";
-  html += "  }).then(r => r.text()).then(data => { alert(data); });";
-  html += "}";
   html += "</script>";
   html += "</head><body>";
   html += "<div class='container'>";
   html += "<h1>Water Monitor</h1>";
 
   if (isAPMode) {
-    html += "<div class='warning'>⚠ <strong>Configuration Mode</strong><br>Device is in Access Point mode. Connect to WiFi to start monitoring.</div>";
-    html += "<h2>WiFi Setup</h2>";
-    html += "<p>Connect to your WiFi network:</p>";
-    html += "<button class='scan' onclick='scanNetworks()'>📡 Scan Networks</button>";
-    html += "<div id='networks' class='network-list'></div>";
-    html += "<div style='margin-top: 20px;'>";
-    html += "<input type='text' id='ssid' placeholder='WiFi SSID' />";
-    html += "<input type='password' id='password' placeholder='WiFi Password' />";
-    html += "<button class='connect-btn' onclick='connectWiFi()'>Connect</button>";
-    html += "</div>";
+    html += "<div class='warning'>⚠ <strong>Setup Mode</strong><br>None of the saved Wi-Fi networks could be joined. "
+            "Add or fix a network below. The device also retries the saved networks every minute.</div>";
+    appendWifiSection(html);
 
   } else {
 
@@ -644,6 +802,8 @@ window.addEventListener('load', () => {
     html += "<p>Control the OLED display (currently " + String(getScreenState() ? "ON" : "OFF") + "):</p>";
     html += "<button class='on' onclick=\"screen('on')\">Turn Screen ON</button>";
     html += "<button class='off' onclick=\"screen('off')\">Turn Screen OFF</button>";
+
+    appendWifiSection(html);
   }
 
   // Info section
@@ -658,7 +818,7 @@ window.addEventListener('load', () => {
     html += "<p>SSID: " + WiFi.SSID() + "</p>";
     html += "<p>RSSI: " + String(WiFi.RSSI()) + " dBm</p>";
   }
-  html += "<p><small>Hold GPIO 0 button for 3 seconds to reset WiFi settings</small></p>";
+  html += "<p><small>Hold the GPIO 0 button for 3 seconds to forget all saved Wi-Fi networks</small></p>";
   html += "</div>";
   html += "</div>";
   html += "</body></html>";
@@ -724,39 +884,93 @@ void handleSetTank() {
 }
 
 void handleScan() {
+  // A scan now would disturb the connection manager's own scan or connect attempt
+  if (wState == W_SCANNING || wState == W_CONNECTING) {
+    server.send(200, "application/json", "{\"busy\":true,\"networks\":[]}");
+    return;
+  }
   Serial.println("Scanning networks...");
   int n = WiFi.scanNetworks();
-  
+
   String json = "{\"networks\":[";
   for (int i = 0; i < n; i++) {
-    if (i > 0) json += ",";
+    if (WiFi.SSID(i).length() == 0) continue;   // hidden network
+    if (json.length() > 14) json += ",";
     json += "{";
-    json += "\"ssid\":\"" + WiFi.SSID(i) + "\",";
+    json += "\"ssid\":" + jsonStr(WiFi.SSID(i)) + ",";
     json += "\"rssi\":" + String(WiFi.RSSI(i)) + ",";
     json += "\"secure\":" + String(WiFi.encryptionType(i) != WIFI_AUTH_OPEN ? "true" : "false");
     json += "}";
   }
   json += "]}";
-  
+  WiFi.scanDelete();
+
   server.send(200, "application/json", json);
 }
 
-void handleConnect() {
-  if (server.hasArg("ssid")) {
-    String ssid = server.arg("ssid");
-    String password = server.hasArg("password") ? server.arg("password") : "";
-    
-    Serial.println("Saving WiFi credentials...");
-    preferences.putString("ssid", ssid);
-    preferences.putString("password", password);
-    
-    server.send(200, "text/plain", "Credentials saved! Device will restart and connect to: " + ssid);
-    
-    delay(2000);
-    ESP.restart();
-  } else {
-    server.send(400, "text/plain", "Missing SSID");
+// GET /wifi -> {"mode":"STA","current":"Home","checkMins":10,"nets":["Home","Phone hotspot"]}
+// (passwords are never sent back)
+void handleGetWifi() {
+  String json = "{\"mode\":\"" + String(isAPMode ? "AP" : isWiFiConnected() ? "STA" : "CONNECTING") + "\"";
+  json += ",\"current\":" + jsonStr(isWiFiConnected() ? WiFi.SSID() : String());
+  json += ",\"checkMins\":" + String(PRIORITY_CHECK_INTERVAL / 60000);
+  json += ",\"nets\":[";
+  for (int i = 0; i < getNetworkCount(); i++) {
+    if (i) json += ",";
+    json += jsonStr(getNetworkSsid(i));
   }
+  json += "]}";
+  server.send(200, "application/json", json);
+}
+
+// Reads the "i" (list position) argument; -1 if missing
+int argIndex() {
+  return server.hasArg("i") ? server.arg("i").toInt() : -1;
+}
+
+void sendResult(const String &err) {
+  if (err.length()) server.send(400, "text/plain", "Error: " + err);
+  else server.send(200, "text/plain", "OK");
+}
+
+// POST /wifi/save  ssid, password   (adds the network, or changes its password)
+void handleSaveWifi() {
+  String ssid = server.arg("ssid");
+  String err = saveNetwork(ssid, server.arg("password"));
+  if (err.length()) {
+    sendResult(err);
+    return;
+  }
+  if (isAPMode) {
+    // In setup mode, try the new network right away
+    requestedNetwork = findNetwork(ssid);
+    server.send(200, "text/plain", "Saved! Trying to connect to " + ssid + " now. If it works, this setup "
+                "network disappears: join " + ssid + " and open http://watertank.local");
+  } else {
+    server.send(200, "text/plain", "Saved " + ssid + " as #" + String(findNetwork(ssid) + 1) + " in the list.");
+  }
+}
+
+// POST /wifi/delete  i
+void handleDeleteWifi() {
+  sendResult(deleteNetwork(argIndex()));
+}
+
+// POST /wifi/move  i, dir (-1 = up, 1 = down)
+void handleMoveWifi() {
+  sendResult(moveNetwork(argIndex(), server.arg("dir").toInt() < 0 ? -1 : 1));
+}
+
+// POST /wifi/use  i   (switch to this network now)
+void handleUseWifi() {
+  int i = argIndex();
+  if (i < 0 || i >= getNetworkCount()) {
+    sendResult("No such network");
+    return;
+  }
+  requestedNetwork = i;   // done by checkWiFiConnection(), after this reply has been sent
+  server.send(200, "text/plain", "Switching to " + getNetworkSsid(i) + ". If it doesn't work, the device "
+              "goes back to the best network in range.");
 }
 
 void handleLed() {
@@ -884,12 +1098,12 @@ void handleStatus() {
   json += "\"led\":\"" + String(ledState == HIGH ? "ON" : "OFF") + "\",";
   json += "\"ledMode\":\"" + String(ledAutoMode ? "AUTO" : "MANUAL") + "\",";
   json += "\"screen\":\"" + String(getScreenState() ? "ON" : "OFF") + "\",";
-  json += "\"mode\":\"" + String(isAPMode ? "AP" : "STA") + "\",";
+  json += "\"mode\":\"" + String(isAPMode ? "AP" : isWiFiConnected() ? "STA" : "CONNECTING") + "\",";
   if (isAPMode) {
     json += "\"ip\":\"" + WiFi.softAPIP().toString() + "\",";
   } else {
     json += "\"ip\":\"" + WiFi.localIP().toString() + "\",";
-    json += "\"ssid\":\"" + WiFi.SSID() + "\",";
+    json += "\"ssid\":" + jsonStr(WiFi.SSID()) + ",";
     json += "\"rssi\":" + String(WiFi.RSSI()) + ",";
   }
   json += "\"uptime\":" + String(millis() / 1000);

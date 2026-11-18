@@ -19,12 +19,15 @@ Use `curl -s --max-time 5`. The web server is single-threaded, so send requests 
 | `/status` | `{"led","ledMode","screen","mode":"AP"/"STA","ip","ssid","rssi","uptime" s}` |
 | `/tank` (GET) | `{"height","gap","capacity","tanks":[{"shape":1-3,"length","width","diameter"}]}`. Shapes: 1 = box, 2 = upright cylinder, 3 = horizontal cylinder. |
 | `/history` | `{"now","day":[[unix,pct],...],"week":[...]}`. Empty until NTP has synced (needs internet). |
-| `/scan` | Nearby Wi-Fi networks. Slow (a few seconds). |
+| `/scan` | Nearby Wi-Fi networks. Slow (a few seconds). Returns `"busy":true` while the device is itself scanning or connecting. |
+| `/wifi` (GET) | `{"mode":"STA"/"AP"/"CONNECTING","current","checkMins","nets":[ssid,...]}`. Saved networks in priority order (#1 = main). Passwords are never returned. |
 
 ## Endpoints that change the device: ask first
 
 - `POST /tank` (`height`, `gap`, `count`, `shape0..`, `length0..`, `width0..`, `diameter0..`) **overwrites the saved tank setup in flash.**
-- `POST /connect` (`ssid`, `password`) **saves new Wi-Fi credentials and reboots.** A wrong value drops the board into AP mode.
+- `POST /wifi/save` (`ssid`, `password`) adds a network to the end of the list, or changes its password.
+- `POST /wifi/delete` (`i`) and `POST /wifi/move` (`i`, `dir` -1/1) edit the saved list.
+- `POST /wifi/use` (`i`) **switches networks now, which drops the current connection.** Afterwards the board may be reachable only from the other network.
 - `/led?state=on|off|auto`, `/screen?state=on|off` are harmless but visible to the user.
 
 Before any write, read the current value (for example `GET /tank`) so it can be restored.
