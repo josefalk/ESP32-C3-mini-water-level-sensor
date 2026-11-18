@@ -32,7 +32,7 @@ Use `curl -s --max-time 5`. The web server is single-threaded, so send requests 
 - `POST /wifi/save` (`ssid`, `password`) adds a network to the end of the list, or changes its password.
 - `POST /wifi/delete` (`i`) and `POST /wifi/move` (`i`, `dir` -1/1) edit the saved list.
 - `POST /wifi/use` (`i`) **switches networks now, which drops the current connection.** Afterwards the board may be reachable only from the other network.
-- `/led?state=on|off|auto`, `/screen?state=on|off` are harmless but visible to the user.
+- `/led?state=on|off` (switches the LED to manual), `/screen?state=on|off` are harmless but visible to the user.
 
 Before any write, read the current value (for example `GET /tank`) so it can be restored.
 

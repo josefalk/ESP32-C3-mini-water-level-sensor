@@ -4,8 +4,6 @@ A Wi-Fi water tank monitor built on an **ESP32-C3** with an **A02YYUW ultrasonic
 It measures the distance to the water and turns it into **percent and litres**. The level is shown on the OLED, on the onboard LED and on a web page with a history graph.
 Other devices can read it through a simple **API**.
 
-![Web page](Images/Webserver-view.png)
-
 ## Contents
 
 - [Features](#features)
@@ -17,7 +15,7 @@ Other devices can read it through a simple **API**.
 - [Updating the firmware](#updating-the-firmware)
 - [Project structure](#project-structure)
 - [Troubleshooting](#troubleshooting)
-- [Photos](#photos)
+- [Other details](#other-details)
 
 ## Features
 
@@ -90,8 +88,6 @@ Other devices can read it through a simple **API**.
 
 > Don't use **GPIO 18/19**: they are the USB data pins. Using them stops USB uploads from working.
 > **GPIO 0** is free.
-
-The Fritzing drawing of the circuit is in [Images/water-level-sensor-drawing.fzz](Images/water-level-sensor-drawing.fzz).
 
 ## Getting started
 
@@ -296,8 +292,6 @@ Or use **ota → Upload** in the PlatformIO sidebar.
 ```
 ESP32-C3-mini-water-level-sensor/
 ├── readme.md
-├── Images/                      Photos, web page screenshot, Fritzing drawing
-├── libraries/                   Old Arduino IDE libraries (not used by the PlatformIO build)
 └── main/                        The firmware (open this folder in VS Code)
     ├── platformio.ini           Build settings, USB and OTA upload
     ├── secrets.example.h        Copy to secrets.h: default Wi-Fi network
@@ -336,12 +330,7 @@ Settings stored in flash (they survive restarts and firmware updates):
 | USB upload doesn't start | Hold **BOOT**, press **RST**, release BOOT. Then upload again. |
 | History graph is empty | It needs the clock: internet, or **Set from this phone** under Time. The first point appears after 5 minutes. |
 
-## Photos
-
-![photo1](Images/photo1.jpg)
-![photo2](Images/photo2.jpg)
-
-### Other details
+## Other details
 
 - **Cable:** 2-pair, 30 meters.
 - **DC inputs:**

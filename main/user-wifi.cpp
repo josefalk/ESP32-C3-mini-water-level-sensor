@@ -100,12 +100,8 @@ void handleApiLevelText();
 void handleGetTime();
 void handleSetTime();
 void handleSetClock();
-void handleLedOn();
-void handleLedOff();
 void handleStatus();
 void handleData();
-void handleScreenOn();
-void handleScreenOff();
 void handleNotFound();
 void handleGetTank();
 void handleSetTank();
@@ -1166,44 +1162,6 @@ void handleLed() {
   }
 }
 
-
-
-void handleLedOn() {
-  ledAutoMode = true;
-  ledState = HIGH;
-  Serial.println("LED set to AUTO mode (ON)");
-  
-  String html = "<!DOCTYPE html><html><head>";
-  html += "<meta http-equiv='refresh' content='2;url=/'>";
-  html += "<style>body { font-family: Arial; text-align: center; margin: 50px; }</style>";
-  html += "</head><body>";
-  html += "<h1>LED AUTO Mode Enabled</h1>";
-  html += "<p>LED will now respond to water level</p>";
-  html += "<p>Redirecting back...</p>";
-  html += "</body></html>";
-  
-  server.send(200, "text/html; charset=utf-8", html);
-}
-
-void handleLedOff() {
-  ledAutoMode = false;
-  ledState = LOW;
-  ledOff();
-  Serial.println("LED set to MANUAL mode (OFF)");
-  
-  String html = "<!DOCTYPE html><html><head>";
-  html += "<meta http-equiv='refresh' content='2;url=/'>";
-  html += "<style>body { font-family: Arial; text-align: center; margin: 50px; }</style>";
-  html += "</head><body>";
-  html += "<h1>LED Turned OFF</h1>";
-  html += "<p>LED will stay off until turned back on</p>";
-  html += "<p>Redirecting back...</p>";
-  html += "</body></html>";
-  
-  server.send(200, "text/html; charset=utf-8", html);
-}
-
-
 void handleScreen() {
   if (!server.hasArg("state")) {
     server.send(400, "application/json", "{\"error\":\"missing state\"}");
@@ -1223,40 +1181,6 @@ void handleScreen() {
   else {
     server.send(400, "application/json", "{\"error\":\"invalid state\"}");
   }
-}
-
-
-
-void handleScreenOn() {
-  setScreenState(true);
-  Serial.println("Screen turned ON via web");
-  
-  String html = "<!DOCTYPE html><html><head>";
-  html += "<meta http-equiv='refresh' content='2;url=/'>";
-  html += "<style>body { font-family: Arial; text-align: center; margin: 50px; }</style>";
-  html += "</head><body>";
-  html += "<h1>Screen Turned ON</h1>";
-  html += "<p>OLED display is now active</p>";
-  html += "<p>Redirecting back...</p>";
-  html += "</body></html>";
-  
-  server.send(200, "text/html; charset=utf-8", html);
-}
-
-void handleScreenOff() {
-  setScreenState(false);
-  Serial.println("Screen turned OFF via web");
-  
-  String html = "<!DOCTYPE html><html><head>";
-  html += "<meta http-equiv='refresh' content='2;url=/'>";
-  html += "<style>body { font-family: Arial; text-align: center; margin: 50px; }</style>";
-  html += "</head><body>";
-  html += "<h1>Screen Turned OFF</h1>";
-  html += "<p>OLED display is now inactive</p>";
-  html += "<p>Redirecting back...</p>";
-  html += "</body></html>";
-  
-  server.send(200, "text/html; charset=utf-8", html);
 }
 
 void handleStatus() {
