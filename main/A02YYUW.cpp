@@ -4,63 +4,47 @@
 
 #include "A02YYUW.h"
 
-// Constructor: store reference to HardwareSerial and pin assignments
 A02YYUW::A02YYUW(HardwareSerial &serial, int rxPin, int txPin)
   : serial(serial), rxPin(rxPin), txPin(txPin) {}
 
 void A02YYUW::begin(unsigned long baud) {
-  // Initialize UART with given baud rate and 8N1 format
   serial.begin(baud, SERIAL_8N1, rxPin, txPin);
 }
 
 float A02YYUW::getDistance() {
-  // The A02YYUW streams frames continuously on its own; this trigger byte
-  // is harmless but not required. Rather than taking one fixed-delay
-  // snapshot of the buffer (which tends to land mid-frame against a
-  // free-running sensor), actively sync on the 0xFF header and wait for
-  // the rest of the frame to arrive.
-  serial.write(0x55);
+  // Streaming sensors send a frame every ~100 ms; wait a bit over two periods.
+  float d = readFrame(false, 250);
+  // No frame? The sensor may need a trigger byte -- ask once.
+  if (d < 0) d = readFrame(true, 150);
+  return d;
+}
 
+float A02YYUW::readFrame(bool trigger, unsigned long timeoutMs) {
+  while (serial.available()) serial.read();   // drop stale backlog
+  if (trigger) serial.write(0x55);
+
+  uint8_t data[4];
+  int idx = 0;
   unsigned long start = millis();
-  while (millis() - start < 60) {
-    if (serial.available() == 0) {
-      delay(2);
-      continue;
-    }
+  while (millis() - start < timeoutMs) {
+    if (!serial.available()) { delay(1); continue; }
+    uint8_t b = serial.read();
 
-    if (serial.peek() != 0xFF) {
-      serial.read();  // not a header byte -- discard and resync
-      continue;
-    }
-
-    if (serial.available() < 4) {
-      delay(2);  // header seen, rest of frame still arriving
-      continue;
-    }
-
-    uint8_t data[4];
-    for (int i = 0; i < 4; i++)
-      data[i] = serial.read();
+    if (idx == 0 && b != 0xFF) continue;      // wait for header
+    data[idx++] = b;
+    if (idx < 4) continue;
+    idx = 0;
 
 #ifdef A02YYUW_DEBUG
-    Serial.printf("[A02YYUW] frame: %02X %02X %02X %02X\n",
-                  data[0], data[1], data[2], data[3]);
+    Serial.printf("[A02YYUW] frame: %02X %02X %02X %02X\n", data[0], data[1], data[2], data[3]);
 #endif
 
-    // Validate checksum: (byte0 + byte1 + byte2) & 0xFF == byte3
-    int sum = (data[0] + data[1] + data[2]) & 0xFF;
-    if (sum == data[3]) {
-      // Combine high + low byte into distance (mm)
-      int dist = (data[1] << 8) + data[2];
-      return dist / 10.0;  // Convert mm → cm
-    }
+    uint8_t sum = (data[0] + data[1] + data[2]) & 0xFF;
+    if (sum != data[3]) continue;             // corrupted frame, wait for next
 
-#ifdef A02YYUW_DEBUG
-    Serial.printf("[A02YYUW] checksum mismatch: got %02X expected %02X\n", data[3], sum);
-#endif
-    // Bad frame -- keep looping in case another one arrives before timeout
+    int mm = (data[1] << 8) | data[2];
+    if (mm == 0) continue;                    // no echo / out of range
+    return mm / 10.0;
   }
-
-  // No valid reading
   return -1;
 }

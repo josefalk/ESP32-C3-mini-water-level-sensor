@@ -13,6 +13,6 @@ void setScreenState(bool state);
 bool getScreenState();
 void showText(const String &text);
 void handleScreenButton();
-void showWaterLevel(float distance, float fullDistance, float emptyDistance);
+void showWaterLevel(float distance, float percent, float litres);  // litres < 0: show distance
 
 #endif

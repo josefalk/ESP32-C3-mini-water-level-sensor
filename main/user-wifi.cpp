@@ -7,10 +7,37 @@
 #include <WiFi.h>
 #include <WebServer.h>
 #include <Preferences.h>
+#include <ESPmDNS.h>
+#include <ArduinoOTA.h>
+#include <time.h>
+#include "user-history.h"
+#include "user-tank.h"
+
+// Network name of the device: the web page is at http://watertank.local
+// and OTA uploads go to watertank.local (see platformio.ini).
+const char* HOSTNAME = "watertank";
+#ifndef OTA_PASSWORD
+#define OTA_PASSWORD "watertank-ota"   // set in platformio.ini build_flags
+#endif
 
 // Access Point credentials
 const char* ap_ssid = "ESP32-Config";
 const char* ap_password = "";
+
+// Default WiFi network to connect to on first boot (used only if no
+// credentials have been saved yet via the AP setup page).
+// They live in secrets.h, which is NOT uploaded to GitHub. To set them,
+// copy secrets.example.h to secrets.h and fill in your network.
+// Without secrets.h the board starts in setup (AP) mode on first boot.
+#if __has_include("secrets.h")
+#include "secrets.h"
+#endif
+#ifndef DEFAULT_WIFI_SSID
+#define DEFAULT_WIFI_SSID ""
+#define DEFAULT_WIFI_PASSWORD ""
+#endif
+const char* DEFAULT_SSID = DEFAULT_WIFI_SSID;
+const char* DEFAULT_PASSWORD = DEFAULT_WIFI_PASSWORD;
 
 // Create web server on port 80
 WebServer server(80);
@@ -43,10 +70,6 @@ float currentDistance = 0.0;
 float currentPercent = 0.0;
 bool sensorDataValid = false;
 
-// Calibration values (defaults)
-float fullDistance = 30.0;
-float emptyDistance = 200.0;
-
 // Forward declarations
 void checkResetButton();
 void checkWiFiConnection();
@@ -61,24 +84,32 @@ void handleStatus();
 void handleData();
 void handleScreenOn();
 void handleScreenOff();
-void handleCalibration();
-void handleGetCalibration();
 void handleNotFound();
+void handleGetTank();
+void handleSetTank();
 
-float getFullDistance() {
-  return fullDistance;
-}
+// ---------------- mDNS, OTA, clock ----------------
+// Started once, the first time we join a Wi-Fi network.
+bool networkServicesStarted = false;
 
-float getEmptyDistance() {
-  return emptyDistance;
-}
+void startNetworkServices() {
+  if (networkServicesStarted) return;
+  networkServicesStarted = true;
 
-void setCalibration(float full, float empty) {
-  fullDistance = full;
-  emptyDistance = empty;
-  preferences.putFloat("fullDist", full);
-  preferences.putFloat("emptyDist", empty);
-  Serial.printf("Calibration saved: Full=%.1f cm, Empty=%.1f cm\n", full, empty);
+  if (MDNS.begin(HOSTNAME)) {
+    MDNS.addService("http", "tcp", 80);
+    Serial.printf("Web page: http://%s.local\n", HOSTNAME);
+  }
+
+  ArduinoOTA.setHostname(HOSTNAME);
+  ArduinoOTA.setPassword(OTA_PASSWORD);
+  ArduinoOTA.onStart([]() { Serial.println("OTA update starting..."); showText("Updating..."); });
+  ArduinoOTA.onEnd([]()   { Serial.println("OTA update done, restarting"); });
+  ArduinoOTA.onError([](ota_error_t e) { Serial.printf("OTA error %u\n", e); });
+  ArduinoOTA.begin();
+
+  // Real time for the history graph (UTC; the browser shows local time)
+  configTime(0, 0, "pool.ntp.org", "time.google.com");
 }
 
 void initWiFi() {
@@ -86,21 +117,19 @@ void initWiFi() {
   
   preferences.begin("wifi", false);
   
-  // Load calibration values or use defaults
-  fullDistance = preferences.getFloat("fullDist", 30.0);
-  emptyDistance = preferences.getFloat("emptyDist", 200.0);
-  Serial.printf("Loaded calibration: Full=%.1f cm, Empty=%.1f cm\n", fullDistance, emptyDistance);
-  
   savedSsid = preferences.getString("ssid", "");
   savedPassword = preferences.getString("password", "");
 
-  if (savedSsid.length() > 0) {
-    Serial.println("Attempting to connect to saved WiFi...");
-    connectToWiFi(savedSsid.c_str(), savedPassword.c_str());
-  } else {
-    Serial.println("No saved WiFi credentials. Starting AP mode...");
-    startAPMode();
+  if (savedSsid.length() == 0) {
+    // No credentials saved yet -- fall back to the built-in default network
+    // instead of dropping straight into AP config mode.
+    Serial.println("No saved WiFi credentials. Using default network...");
+    savedSsid = DEFAULT_SSID;
+    savedPassword = DEFAULT_PASSWORD;
   }
+
+  Serial.println("Attempting to connect to WiFi...");
+  connectToWiFi(savedSsid.c_str(), savedPassword.c_str());
   server.on("/led", handleLed);
   server.on("/screen", handleScreen);
   server.on("/", handleRoot);
@@ -108,8 +137,9 @@ void initWiFi() {
   server.on("/connect", HTTP_POST, handleConnect);
   server.on("/status", handleStatus);
   server.on("/data", handleData);
-  server.on("/calibration", HTTP_POST, handleCalibration);
-  server.on("/calibration", HTTP_GET, handleGetCalibration);
+  server.on("/tank", HTTP_GET, handleGetTank);
+  server.on("/tank", HTTP_POST, handleSetTank);
+  server.on("/history", []() { server.send(200, "application/json", getHistoryJson()); });
   server.onNotFound(handleNotFound);
   
   server.begin();
@@ -118,6 +148,7 @@ void initWiFi() {
 
 void handleWiFi() {
   server.handleClient();
+  if (networkServicesStarted) ArduinoOTA.handle();
   checkResetButton();
   checkWiFiConnection();
 }
@@ -142,6 +173,10 @@ void updateSensorData(float distance, float percent) {
   currentDistance = distance;
   currentPercent = percent;
   sensorDataValid = true;
+}
+
+void setSensorInvalid() {
+  sensorDataValid = false;
 }
 
 void checkResetButton() {
@@ -220,6 +255,9 @@ void connectToWiFi(const char* ssid, const char* password) {
   Serial.println(ssid);
   
   WiFi.mode(WIFI_STA);
+  // ESP32-C3 Super Mini boards have a poorly matched antenna: at full TX power
+  // the signal is distorted and neither STA nor AP works. Lower power fixes it.
+  WiFi.setTxPower(WIFI_POWER_8_5dBm);
   WiFi.setSleep(false);   // disable modem sleep -- a common cause of random silent disconnects
   WiFi.begin(ssid, password);
   
@@ -239,13 +277,29 @@ void connectToWiFi(const char* ssid, const char* password) {
     Serial.print("IP address: ");
     Serial.println(WiFi.localIP());
     isAPMode = false;
-    
+    startNetworkServices();
+
     ledOn(0, 255, 0);
     delay(1000);
     ledOff();
   } else {
     Serial.println();
-    Serial.println("Failed to connect to WiFi");
+    Serial.printf("Failed to connect to WiFi (status code %d: 1=network not found, 4=wrong password/rejected, 6=disconnected)\n",
+                  (int)WiFi.status());
+    // Diagnose: is the network visible at all, and how strong is it?
+    int n = WiFi.scanNetworks();
+    bool found = false;
+    Serial.printf("Networks the ESP can see (2.4 GHz only): %d\n", n);
+    for (int i = 0; i < n; i++) {
+      Serial.printf("  %-32s  signal %d dBm  channel %d\n",
+                    WiFi.SSID(i).c_str(), WiFi.RSSI(i), WiFi.channel(i));
+      if (WiFi.SSID(i) == ssid) found = true;
+    }
+    if (!found)
+      Serial.printf(">> '%s' NOT visible: router is 5 GHz only, too far away, or name is different\n", ssid);
+    else
+      Serial.printf(">> '%s' IS visible, so the password is probably wrong\n", ssid);
+    WiFi.scanDelete();
     Serial.println("Starting AP mode for configuration...");
     startAPMode();
   }
@@ -254,6 +308,7 @@ void connectToWiFi(const char* ssid, const char* password) {
 void startAPMode() {
   WiFi.mode(WIFI_AP);
   WiFi.softAP(ap_ssid, ap_password);
+  WiFi.setTxPower(WIFI_POWER_8_5dBm);   // see note in connectToWiFi()
   
   Serial.println("=============================");
   Serial.println("AP Mode Started");
@@ -306,6 +361,8 @@ void handleRoot() {
   html += ".calibration-input { display: flex; flex-direction: column; }";
   html += ".calibration-input label { font-size: 14px; color: #666; margin-bottom: 5px; }";
   html += ".save-calibration { background-color: #FF9800; width: 100%; }";
+  html += ".range { background:#e0e0e0; color:#333; padding:8px 16px; } .range.on { background:#2196F3; color:white; }";
+  html += "select { width:100%; font-size:16px; }";
   html += "</style>";
   html += "<script>";
 
@@ -314,30 +371,6 @@ void handleRoot() {
   // -----------------------------
   html += "function led(state){ fetch('/led?state='+state).then(r=>r.text()).then(console.log); }";
   html += "function screen(state){ fetch('/screen?state='+state).then(r=>r.text()).then(console.log); }";
-
-  // Load calibration values
-  html += "function loadCalibration() {";
-  html += "  fetch('/calibration').then(r => r.json()).then(data => {";
-  html += "    document.getElementById('fullDist').value = data.full;";
-  html += "    document.getElementById('emptyDist').value = data.empty;";
-  html += "  });";
-  html += "}";
-  html += "window.onload = loadCalibration;";
-
-  // Save calibration
-  html += "function saveCalibration() {";
-  html += "  const full = parseFloat(document.getElementById('fullDist').value);";
-  html += "  const empty = parseFloat(document.getElementById('emptyDist').value);";
-  html += "  if (isNaN(full) || isNaN(empty)) { alert('Please enter valid numbers'); return; }";
-  html += "  if (full >= empty) { alert('Full distance must be less than empty distance'); return; }";
-  html += "  fetch('/calibration', {";
-  html += "    method: 'POST',";
-  html += "    headers: {'Content-Type': 'application/x-www-form-urlencoded'},";
-  html += "    body: 'full='+full+'&empty='+empty";
-  html += "  }).then(r => r.text()).then(data => {";
-  html += "    alert(data); setTimeout(()=>location.reload(), 1000);";
-  html += "  });";
-  html += "}";
 
   // Auto-refresh sensor data
   html += "function updateSensorData() {";
@@ -417,23 +450,184 @@ void handleRoot() {
     html += "<div class='sensor-label'>Level</div>";
     html += "<div class='sensor-value'><span id='percent'>--</span> %</div>";
     html += "</div>";
+    html += "<div class='sensor-item' id='litresBox' style='grid-column: span 2; display:none'>";
+    html += "<div class='sensor-label' id='litresLabel'>Water in tank</div>";
+    html += "<div class='sensor-value'><span id='litres'>--</span> L <small style='font-size:14px;color:#666'>of <span id='capacity'>--</span> L</small></div>";
+    html += "</div>";
     html += "</div>";
     html += "</div>";
 
-    // Calibration
-    html += "<h2>Tank Calibration</h2>";
-    html += "<p>Set the distance measurements for your tank:</p>";
-    html += "<div class='calibration-group'>";
-    html += "<div class='calibration-input'>";
-    html += "<label>Full Tank Distance (cm):</label>";
-    html += "<input type='number' id='fullDist' step='0.1' min='0' placeholder='30.0' />";
-    html += "</div>";
-    html += "<div class='calibration-input'>";
-    html += "<label>Empty Tank Distance (cm):</label>";
-    html += "<input type='number' id='emptyDist' step='0.1' min='0' placeholder='200.0' />";
-    html += "</div>";
-    html += "</div>";
-    html += "<button class='save-calibration' onclick='saveCalibration()'>Save Calibration</button>";
+    // History graph (drawn by the script below)
+    html += R"HTML(
+<h2>History</h2>
+<div>
+  <button id='rDay' class='range on' onclick="setRange('day')">24 hours</button>
+  <button id='rWeek' class='range' onclick="setRange('week')">7 days</button>
+</div>
+<div id='chartWrap' style='margin-top:10px'><svg id='chart' viewBox='0 0 560 210' style='width:100%;height:auto'></svg></div>
+<p id='chartNote' style='color:#666;font-size:13px'></p>
+)HTML";
+
+    // Tank setup: height + sensor gap + one or more parallel tanks
+    html += R"HTML(
+<h2>Tank Setup</h2>
+<p style='color:#666;font-size:14px'>All sizes are <b>inside</b> measurements in cm.</p>
+<div class='calibration-group'>
+  <div class='calibration-input'><label>Tank height (cm):</label>
+    <input type='number' id='tH' step='0.1' min='0'>
+    <small style='color:#888'>Bottom of the tank up to the full water line.</small></div>
+  <div class='calibration-input'><label>Sensor gap (cm):</label>
+    <input type='number' id='tG' step='0.1' min='0'>
+    <small style='color:#888'>Sensor face down to the water when the tank is full.</small></div>
+</div>
+<div id='tankList'></div>
+<button class='scan' id='addTankBtn' onclick='addTank()'>+ Add tank</button>
+<p style='color:#666;font-size:13px'>Tanks connected at the bottom (in parallel) fill to the same level,
+  so they must all be the same height. Their shape, length, width and diameter may differ.
+  The sensor can sit in any one of them.</p>
+<button class='save-calibration' onclick='saveTank()'>Save Tank Setup</button>
+<p id='tankSummary' style='color:#333;font-size:14px'></p>
+
+<script>
+const SHAPES = {1:'Box (rectangular)', 2:'Round, standing upright', 3:'Round, lying on its side'};
+const MAX_TANKS = 4;
+let tanks = [];
+
+function field(i, key, label){
+  return `<div class='calibration-input'><label>${label} (cm):</label>
+    <input type='number' step='0.1' min='0' value='${tanks[i][key] || ''}'
+      oninput='tanks[${i}].${key} = parseFloat(this.value) || 0'></div>`;
+}
+function renderTanks(){
+  let h = '';
+  tanks.forEach((t, i) => {
+    h += `<div style='border:1px solid #ddd;border-radius:8px;padding:10px;margin:10px 0'>
+      <div style='display:flex;justify-content:space-between;align-items:center'>
+        <b>Tank ${i+1}</b>
+        <button style='background:#f44336;padding:4px 10px;font-size:13px' onclick='removeTank(${i})'>Remove</button>
+      </div>
+      <select onchange='tanks[${i}].shape = +this.value; renderTanks()'
+        style='padding:10px;margin:10px 0;border:1px solid #ddd;border-radius:5px'>
+        ${Object.entries(SHAPES).map(([v, n]) => `<option value='${v}' ${t.shape == v ? 'selected' : ''}>${n}</option>`).join('')}
+      </select>
+      <div class='calibration-group' style='margin:0'>`;
+    if (t.shape == 1) h += field(i, 'length', 'Length') + field(i, 'width', 'Width');
+    if (t.shape == 2) h += field(i, 'diameter', 'Diameter');
+    if (t.shape == 3) h += field(i, 'length', 'Length') +
+      `<div class='calibration-input'><label>Diameter:</label><small style='color:#888;padding-top:12px'>
+        = tank height</small></div>`;
+    h += `</div></div>`;
+  });
+  document.getElementById('tankList').innerHTML = h;
+  const btn = document.getElementById('addTankBtn');
+  btn.textContent = tanks.length ? '+ Add parallel tank' : '+ Add tank';
+  btn.style.display = tanks.length >= MAX_TANKS ? 'none' : '';
+}
+function addTank(){
+  tanks.push({shape: 1, length: 0, width: 0, diameter: 0});
+  renderTanks();
+}
+function removeTank(i){
+  tanks.splice(i, 1);
+  renderTanks();
+}
+function loadTank(){
+  fetch('/tank').then(r=>r.json()).then(d=>{
+    document.getElementById('tH').value = d.height;
+    document.getElementById('tG').value = d.gap;
+    tanks = d.tanks;
+    renderTanks();
+  });
+}
+function saveTank(){
+  let body = 'height=' + (document.getElementById('tH').value || 0) +
+             '&gap=' + (document.getElementById('tG').value || 0) + '&count=' + tanks.length;
+  tanks.forEach((t, i) => {
+    body += `&shape${i}=${t.shape}&length${i}=${t.length||0}&width${i}=${t.width||0}&diameter${i}=${t.diameter||0}`;
+  });
+  fetch('/tank', {method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body})
+    .then(r=>r.text()).then(msg => { alert(msg); updateLitres(); });
+}
+
+// Litres display + live check of the setup
+function updateLitres(){
+  fetch('/data').then(r=>r.json()).then(d=>{
+    const box = document.getElementById('litresBox');
+    if (d.capacity > 0 && d.litres >= 0){
+      box.style.display = '';
+      document.getElementById('litres').textContent = d.litres;
+      document.getElementById('capacity').textContent = d.capacity;
+      document.getElementById('litresLabel').textContent =
+        d.tanks > 1 ? `Water in ${d.tanks} tanks` : 'Water in tank';
+    } else box.style.display = 'none';
+    document.getElementById('tankSummary').textContent = d.valid
+      ? `Check: sensor reads ${d.distance} cm, so the water is ${d.depth} cm deep` +
+        (d.capacity > 0 ? ` (${d.litres} of ${d.capacity} L).` : '.')
+      : '';
+  });
+}
+// ---- History chart ----
+let range = 'day', hist = null;
+function setRange(r){
+  range = r;
+  document.getElementById('rDay').className = 'range' + (r=='day' ? ' on' : '');
+  document.getElementById('rWeek').className = 'range' + (r=='week' ? ' on' : '');
+  drawChart();
+}
+function loadHistory(){
+  fetch('/history').then(r=>r.json()).then(d=>{ hist = d; drawChart(); });
+}
+function drawChart(){
+  if (!hist) return;
+  const W=560, H=210, L=38, R=10, T=10, B=26;
+  const span = range=='day' ? 86400 : 7*86400;
+  const step = range=='day' ? 300 : 3600;
+  const pts = hist[range];
+  const now = hist.now, t0 = now - span;
+  const x = t => L + (t - t0) / span * (W - L - R);
+  const y = p => T + (100 - p) / 100 * (H - T - B);
+  let s = '';
+  // grid + % labels
+  for (let p = 0; p <= 100; p += 25){
+    s += `<line x1='${L}' x2='${W-R}' y1='${y(p)}' y2='${y(p)}' stroke='#e5e5e5'/>`;
+    s += `<text x='${L-6}' y='${y(p)+4}' text-anchor='end' font-size='11' fill='#888'>${p}%</text>`;
+  }
+  // time labels: every 6 h (24 h view) or every day (7 day view)
+  const tick = range=='day' ? 6*3600 : 86400;
+  const off = new Date().getTimezoneOffset() * 60;   // align ticks to local midnight
+  for (let t = Math.ceil((t0 - off) / tick) * tick + off; t <= now; t += tick){
+    const d = new Date(t * 1000);
+    const lbl = range=='day' ? d.getHours().toString().padStart(2,'0') + ':00'
+                             : d.toLocaleDateString(undefined, {weekday:'short'});
+    s += `<line x1='${x(t)}' x2='${x(t)}' y1='${T}' y2='${H-B}' stroke='#f0f0f0'/>`;
+    s += `<text x='${x(t)}' y='${H-8}' text-anchor='middle' font-size='11' fill='#888'>${lbl}</text>`;
+  }
+  // data line, split where there are gaps (device was off)
+  let seg = [], segs = [];
+  pts.filter(p => p[0] >= t0).forEach((p, i, a) => {
+    if (i && p[0] - a[i-1][0] > step * 2.5){ segs.push(seg); seg = []; }
+    seg.push(`${x(p[0] + step/2).toFixed(1)},${y(p[1]).toFixed(1)}`);
+  });
+  segs.push(seg);
+  segs.forEach(sg => {
+    if (sg.length == 1) s += `<circle cx='${sg[0].split(',')[0]}' cy='${sg[0].split(',')[1]}' r='2.5' fill='#2196F3'/>`;
+    else if (sg.length) s += `<polyline points='${sg.join(' ')}' fill='none' stroke='#2196F3' stroke-width='2' stroke-linejoin='round'/>`;
+  });
+  document.getElementById('chart').innerHTML = s;
+
+  const n = pts.filter(p => p[0] >= t0).length;
+  document.getElementById('chartNote').textContent =
+    n ? '' : (hist.now < 1700000000 ? 'Waiting for the clock to sync (needs internet)...'
+           : 'No data yet - the first point appears after ' + (range=='day' ? '5 minutes.' : '1 hour.'));
+}
+
+window.addEventListener('load', () => {
+  loadTank(); loadHistory(); updateLitres();
+  setInterval(updateLitres, 2000);
+  setInterval(loadHistory, 60000);
+});
+</script>
+)HTML";
 
     // ==============================
     // LED CONTROL (No Page Reload)
@@ -472,45 +666,61 @@ void handleRoot() {
   server.send(200, "text/html", html);
 }
 
-void handleCalibration() {
-  if (server.hasArg("full") && server.hasArg("empty")) {
-    float full = server.arg("full").toFloat();
-    float empty = server.arg("empty").toFloat();
-    
-    if (full >= empty) {
-      server.send(400, "text/plain", "Error: Full distance must be less than empty distance");
-      return;
-    }
-    
-    if (full <= 0 || empty <= 0) {
-      server.send(400, "text/plain", "Error: Values must be positive");
-      return;
-    }
-    
-    setCalibration(full, empty);
-    server.send(200, "text/plain", "Calibration saved! Full=" + String(full, 1) + "cm, Empty=" + String(empty, 1) + "cm");
-  } else {
-    server.send(400, "text/plain", "Missing calibration parameters");
-  }
-}
-
-void handleGetCalibration() {
-  String json = "{";
-  json += "\"full\":" + String(fullDistance, 1) + ",";
-  json += "\"empty\":" + String(emptyDistance, 1);
-  json += "}";
-  
-  server.send(200, "application/json", json);
-}
-
 void handleData() {
+  float litres = sensorDataValid ? waterLitres(currentDistance) : -1;
   String json = "{";
   json += "\"valid\":" + String(sensorDataValid ? "true" : "false") + ",";
   json += "\"distance\":" + String(currentDistance, 1) + ",";
-  json += "\"percent\":" + String(currentPercent, 1);
+  json += "\"depth\":" + String(sensorDataValid ? waterDepth(currentDistance) : -1, 1) + ",";
+  json += "\"percent\":" + String(currentPercent, 1) + ",";
+  json += "\"litres\":" + String(litres, 0) + ",";
+  json += "\"capacity\":" + String(tankCapacity(), 0) + ",";
+  json += "\"tanks\":" + String(getTankCount());
   json += "}";
-  
   server.send(200, "application/json", json);
+}
+
+// GET /tank -> {"height":..,"gap":..,"capacity":..,"tanks":[{"shape":1,"length":..,"width":..,"diameter":..},...]}
+void handleGetTank() {
+  String json = "{\"height\":" + String(getTankHeight(), 1);
+  json += ",\"gap\":" + String(getSensorGap(), 1);
+  json += ",\"capacity\":" + String(tankCapacity(), 0);
+  json += ",\"tanks\":[";
+  for (int i = 0; i < getTankCount(); i++) {
+    const TankUnit &t = getTankUnit(i);
+    if (i) json += ",";
+    json += "{\"shape\":" + String(t.shape);
+    json += ",\"length\":" + String(t.length, 1);
+    json += ",\"width\":" + String(t.width, 1);
+    json += ",\"diameter\":" + String(t.diameter, 1) + "}";
+  }
+  json += "]}";
+  server.send(200, "application/json", json);
+}
+
+// POST /tank  height, gap, count, shape0, length0, width0, diameter0, shape1, ...
+void handleSetTank() {
+  int count = server.arg("count").toInt();
+  if (count < 0 || count > MAX_TANKS) {
+    server.send(400, "text/plain", "Error: up to " + String(MAX_TANKS) + " tanks");
+    return;
+  }
+  TankUnit units[MAX_TANKS];
+  for (int i = 0; i < count; i++) {
+    String n(i);
+    units[i].shape    = server.arg("shape" + n).toInt();
+    units[i].length   = server.arg("length" + n).toFloat();
+    units[i].width    = server.arg("width" + n).toFloat();
+    units[i].diameter = server.arg("diameter" + n).toFloat();
+  }
+  String err = setTankSetup(server.arg("height").toFloat(), server.arg("gap").toFloat(), units, count);
+  if (err.length()) {
+    server.send(400, "text/plain", "Error: " + err);
+    return;
+  }
+  float cap = tankCapacity();
+  server.send(200, "text/plain", cap > 0 ? "Saved! Total capacity: " + String(cap, 0) + " L"
+                                         : String("Saved!"));
 }
 
 void handleScan() {

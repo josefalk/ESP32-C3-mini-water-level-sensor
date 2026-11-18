@@ -122,22 +122,22 @@ void handleScreenButton() {
   lastButtonState = currentState;
 }
 
-// Row 1 (IP) + row 2 (distance/percent) + row 3 (filled level bar)
-void showWaterLevel(float distance, float fullDistance, float emptyDistance) {
+// Row 1 (IP) + row 2 (litres or distance, and percent) + row 3 (filled level bar)
+void showWaterLevel(float distance, float percent, float litres) {
   if (!screenAvailable || !screenOn) return;
-
-  // Convert raw distance to percentage (clamped)
-  float percent = (emptyDistance - distance) /
-                  (emptyDistance - fullDistance) * 100;
-  percent = constrain(percent, 0, 100);
 
   u8g2.clearBuffer();
   drawIPRow();
 
   u8g2.setFont(u8g2_font_5x7_tf);
   u8g2.setCursor(0, 16);
-  u8g2.print(distance, 1);
-  u8g2.print("cm ");
+  if (litres >= 0) {          // tank sizes set: show litres
+    u8g2.print((long)lroundf(litres));
+    u8g2.print("L ");
+  } else {                    // otherwise show the raw distance
+    u8g2.print(distance, 1);
+    u8g2.print("cm ");
+  }
   u8g2.print((int)percent);
   u8g2.print("%");
 
