@@ -9,6 +9,7 @@
 #include <ESPmDNS.h>
 #include <ArduinoOTA.h>
 #include <time.h>
+#include <nvs.h>
 #include "user-history.h"
 #include "user-tank.h"
 #include "user-networks.h"
@@ -1196,7 +1197,21 @@ void handleStatus() {
     json += "\"ssid\":" + jsonStr(WiFi.SSID()) + ",";
     json += "\"rssi\":" + String(WiFi.RSSI()) + ",";
   }
-  json += "\"uptime\":" + String(millis() / 1000);
+  json += "\"uptime\":" + String(millis() / 1000) + ",";
+
+  // Board health: memory, settings storage, chip temperature
+  nvs_stats_t nvs = {};
+  nvs_get_stats(NULL, &nvs);
+  json += "\"heapFree\":" + String(ESP.getFreeHeap()) + ",";         // RAM free now (bytes)
+  json += "\"heapMinFree\":" + String(ESP.getMinFreeHeap()) + ",";   // lowest free RAM since start
+  json += "\"heapMaxBlock\":" + String(ESP.getMaxAllocHeap()) + ",";  // biggest single free block
+  json += "\"heapTotal\":" + String(ESP.getHeapSize()) + ",";
+  json += "\"appSize\":" + String(ESP.getSketchSize()) + ",";          // firmware size
+  json += "\"appSpace\":" + String(ESP.getFreeSketchSpace()) + ",";    // room per firmware slot
+  json += "\"nvsUsed\":" + String(nvs.used_entries) + ",";            // settings storage, 32-byte entries
+  json += "\"nvsTotal\":" + String(nvs.total_entries) + ",";
+  json += "\"chipTemp\":" + String(temperatureRead(), 1) + ",";       // degrees C
+  json += "\"resetReason\":" + String((int)esp_reset_reason());       // 1 power-on, 3 software, 4 crash, 6/7 watchdog, 9 brownout
   json += "}";
   
   server.send(200, "application/json", json);

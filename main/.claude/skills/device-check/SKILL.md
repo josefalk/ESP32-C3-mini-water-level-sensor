@@ -18,7 +18,7 @@ Use `curl -s --max-time 5`. The web server is single-threaded, so send requests 
 | `/api/level` | **Public API for other devices, keep field names stable.** `{"valid","percent","litres","capacity","depth","distance","age" s,"time" unix}`. `-1` = not available. Has a CORS header. |
 | `/api/level.txt` | Plain text `percent;litres`, e.g. `45.2;720`. |
 | `/data` | `{"valid","distance" cm,"depth" cm,"percent","litres","capacity","tanks"}`. `litres`/`capacity` are `-1` when no tank sizes are set. `valid:false` means the sensor stopped answering. |
-| `/status` | `{"led","ledMode","screen","mode":"AP"/"STA","ip","ssid","rssi","uptime" s}` |
+| `/status` | `{"led","ledMode","screen","mode":"AP"/"STA"/"CONNECTING","ip","ssid","rssi","uptime" s, "heapFree","heapMinFree","heapMaxBlock","heapTotal" bytes, "appSize","appSpace" bytes, "nvsUsed","nvsTotal" entries, "chipTemp" °C, "resetReason"}`. Baseline (Nov 2026): heapFree ~195 KB, heapMinFree ~160 KB after page loads, NVS 187/630. resetReason 4 = crash, 6/7 = watchdog, 9 = brownout (power supply). |
 | `/tank` (GET) | `{"height","gap","capacity","tanks":[{"shape":1-3,"length","width","diameter"}]}`. Shapes: 1 = box, 2 = upright cylinder, 3 = horizontal cylinder. |
 | `/history` | `{"now","day":[[unix,pct],...],"week":[...]}`. Empty until NTP has synced (needs internet). |
 | `/scan` | Nearby Wi-Fi networks. Slow (a few seconds). Returns `"busy":true` while the device is itself scanning or connecting. |
