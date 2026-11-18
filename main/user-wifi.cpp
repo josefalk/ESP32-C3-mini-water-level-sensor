@@ -95,6 +95,8 @@ void handleSaveWifi();
 void handleDeleteWifi();
 void handleMoveWifi();
 void handleUseWifi();
+void handleApiLevel();
+void handleApiLevelText();
 void handleGetTime();
 void handleSetTime();
 void handleSetClock();
@@ -168,6 +170,8 @@ void initWiFi() {
   server.on("/data", handleData);
   server.on("/tank", HTTP_GET, handleGetTank);
   server.on("/tank", HTTP_POST, handleSetTank);
+  server.on("/api/level", HTTP_GET, handleApiLevel);
+  server.on("/api/level.txt", HTTP_GET, handleApiLevelText);
   server.on("/time", HTTP_GET, handleGetTime);
   server.on("/time", HTTP_POST, handleSetTime);
   server.on("/time/set", HTTP_POST, handleSetClock);
@@ -205,10 +209,13 @@ bool isLedAutoMode() {
   return ledAutoMode;
 }
 
+unsigned long lastReadingAt = 0;   // millis() of the last valid reading
+
 void updateSensorData(float distance, float percent) {
   currentDistance = distance;
   currentPercent = percent;
   sensorDataValid = true;
+  lastReadingAt = millis();
 }
 
 void setSensorInvalid() {
@@ -927,6 +934,43 @@ void handleData() {
   json += "\"tanks\":" + String(getTankCount());
   json += "}";
   server.send(200, "application/json", json);
+}
+
+// ---------------- API for other devices ----------------
+// Stable endpoints meant for other boards / scripts (e.g. a big display).
+// Keep these field names unchanged so existing clients keep working.
+//
+// GET /api/level ->
+//   {"valid":true,"percent":45.2,"litres":720,"capacity":1592,
+//    "depth":77.1,"distance":122.9,"age":1,"time":1795033980}
+//   valid    = false if the sensor isn't answering (then the numbers are -1)
+//   litres / capacity = -1 if no tank sizes are set up
+//   age      = seconds since the last good reading
+//   time     = device clock (unix seconds, UTC), 0 if not set
+//
+// GET /api/level.txt -> "45.2;720"   (percent;litres, -1 when not available)
+//   Easy to read without a JSON library: sscanf(text, "%f;%d", &pct, &l)
+void handleApiLevel() {
+  bool ok = sensorDataValid;
+  String json = "{\"valid\":" + String(ok ? "true" : "false");
+  json += ",\"percent\":" + String(ok ? currentPercent : -1, 1);
+  json += ",\"litres\":" + String(ok ? lroundf(waterLitres(currentDistance)) : -1L);
+  json += ",\"capacity\":" + String(lroundf(tankCapacity()));
+  json += ",\"depth\":" + String(ok ? waterDepth(currentDistance) : -1, 1);
+  json += ",\"distance\":" + String(ok ? currentDistance : -1, 1);
+  json += ",\"age\":" + String(lastReadingAt ? (long)((millis() - lastReadingAt) / 1000) : -1L);
+  json += ",\"time\":" + String(isClockValid() ? (uint32_t)time(nullptr) : 0);
+  json += "}";
+  server.sendHeader("Access-Control-Allow-Origin", "*");   // allow other web pages to read it too
+  server.send(200, "application/json", json);
+}
+
+void handleApiLevelText() {
+  bool ok = sensorDataValid;
+  String txt = String(ok ? currentPercent : -1, 1) + ";" +
+               String(ok ? lroundf(waterLitres(currentDistance)) : -1L);
+  server.sendHeader("Access-Control-Allow-Origin", "*");
+  server.send(200, "text/plain", txt);
 }
 
 // GET /tank -> {"height":..,"gap":..,"capacity":..,"tanks":[{"shape":1,"length":..,"width":..,"diameter":..},...]}

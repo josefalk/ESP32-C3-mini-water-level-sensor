@@ -17,6 +17,50 @@ featuring WiFi setup and live web dashboard.
 - Web page at `http://watertank.local`, firmware updates over Wi-Fi (OTA)
 - Modular C++/ESP32 code (PlatformIO)
 
+## API (for other devices)
+
+Other devices on the same network (e.g. a second ESP with a big screen) can read the level.
+Use the board's address: `http://watertank.local` or its IP (shown on the OLED).
+Reading by IP is faster and more reliable from another ESP. Give the board a fixed IP (DHCP reservation) in your router.
+
+**`GET /api/level`** — JSON:
+
+```json
+{"valid":true,"percent":45.2,"litres":720,"capacity":1592,"depth":77.1,"distance":122.9,"age":1,"time":1795033980}
+```
+
+| Field | Meaning |
+|-------|---------|
+| `valid` | `false` when the sensor isn't answering; the numbers are then `-1` |
+| `percent` | Water level 0–100 % (by volume when tank sizes are set) |
+| `litres`, `capacity` | Water now / when full, in litres. `-1` if no tank sizes are set |
+| `depth`, `distance` | Water depth and sensor distance, in cm |
+| `age` | Seconds since the last good sensor reading |
+| `time` | Board's clock (unix seconds, UTC), `0` if not set |
+
+**`GET /api/level.txt`** — plain text `percent;litres`, e.g. `45.2;720`. Easy to read without a JSON library.
+
+Example for the display ESP (Arduino):
+
+```cpp
+#include <WiFi.h>
+#include <HTTPClient.h>
+
+void readTank() {
+  HTTPClient http;
+  http.begin("http://192.168.88.27/api/level.txt");   // the water tank board
+  http.setTimeout(3000);
+  if (http.GET() == 200) {
+    float percent; int litres;
+    if (sscanf(http.getString().c_str(), "%f;%d", &percent, &litres) == 2 && percent >= 0) {
+      Serial.printf("Tank: %.0f %%, %d L\n", percent, litres);   // draw it on your screen here
+    }
+  }
+  http.end();
+}
+// Call readTank() every few seconds from loop(). The level updates about 3 times a second.
+```
+
 ## Wi-Fi networks
 
 The web page has a **Wi-Fi Networks** list (up to 5). The order is the priority: #1 is the main network.

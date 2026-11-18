@@ -41,6 +41,7 @@ Each module has its own namespace: `"wifi"` (saved networks, owned by `user-netw
 
 - The page is built in `handleRoot()` as `html += "..."` string lines (inline CSS + JS, no external files or CDNs, because the device may have no internet in AP mode).
 - Register routes in `initWiFi()` next to the others. JSON is built by hand with `String`; keep keys short and use `-1` for "not available", as `/data` does.
+- `/api/level` and `/api/level.txt` are read by other devices (a display ESP). Never rename or remove their fields; only add new ones. Keep the readme's API section in sync.
 - Validate POST input in the owning module (like `setTankSetup()` returns an error string) and reply `400` with `"Error: ..."` on failure.
 - Watch `String` growth in big responses: call `reserve()` (see `getHistoryJson()`).
 

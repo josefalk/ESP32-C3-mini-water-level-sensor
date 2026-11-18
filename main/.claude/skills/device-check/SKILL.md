@@ -15,6 +15,8 @@ Use `curl -s --max-time 5`. The web server is single-threaded, so send requests 
 
 | Path | Returns |
 |------|---------|
+| `/api/level` | **Public API for other devices, keep field names stable.** `{"valid","percent","litres","capacity","depth","distance","age" s,"time" unix}`. `-1` = not available. Has a CORS header. |
+| `/api/level.txt` | Plain text `percent;litres`, e.g. `45.2;720`. |
 | `/data` | `{"valid","distance" cm,"depth" cm,"percent","litres","capacity","tanks"}`. `litres`/`capacity` are `-1` when no tank sizes are set. `valid:false` means the sensor stopped answering. |
 | `/status` | `{"led","ledMode","screen","mode":"AP"/"STA","ip","ssid","rssi","uptime" s}` |
 | `/tank` (GET) | `{"height","gap","capacity","tanks":[{"shape":1-3,"length","width","diameter"}]}`. Shapes: 1 = box, 2 = upright cylinder, 3 = horizontal cylinder. |
