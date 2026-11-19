@@ -19,7 +19,7 @@ Use `curl -s --max-time 5`. The web server is single-threaded, so send requests 
 | `/api/level.txt` | Plain text `percent;litres`, e.g. `45.2;720`. |
 | `/data` | `{"valid","distance" cm,"depth" cm,"percent","litres","capacity","tanks"}`. `litres`/`capacity` are `-1` when no tank sizes are set. `valid:false` means the sensor stopped answering. |
 | `/status` | `{"led","ledMode","screen","mode":"AP"/"STA"/"CONNECTING","ip","ssid","rssi","uptime" s, "heapFree","heapMinFree","heapMaxBlock","heapTotal" bytes, "appSize","appSpace" bytes, "nvsUsed","nvsTotal" entries, "chipTemp" °C, "resetReason"}`. Baseline (Nov 2026): heapFree ~195 KB, heapMinFree ~160 KB after page loads, NVS 187/630. resetReason 4 = crash, 6/7 = watchdog, 9 = brownout (power supply). |
-| `/tank` (GET) | `{"height","gap","capacity","tanks":[{"shape":1-3,"length","width","diameter"}]}`. Shapes: 1 = box, 2 = upright cylinder, 3 = horizontal cylinder. |
+| `/tank` (GET) | `{"height","gap","capacity","sensor" (tank index),"tanks":[{"shape":1-3,"length","width","diameter","open","measured","held" L}]}`. Shapes: 1 = box, 2 = upright cylinder, 3 = horizontal cylinder. `open` = valve open; `measured` = counted in litres now; `held` = litres a closed tank held when closed (-1 unknown). |
 | `/history` | `{"now","day":[[unix,pct],...],"week":[...]}`. Empty until NTP has synced (needs internet). |
 | `/scan` | Nearby Wi-Fi networks. Slow (a few seconds). Returns `"busy":true` while the device is itself scanning or connecting. |
 | `/time` (GET) | `{"now" unix UTC,"valid","offset" min,"summer","tz" total min,"local":"Wed 18 Nov 23:11"}` |
@@ -32,7 +32,8 @@ Use `curl -s --max-time 5`. The web server is single-threaded, so send requests 
 - `POST /lock/check` (`pin`) answers `OK` if the PIN is right.
 - `POST /lock/set` (`pin` = the current PIN, `new` = 4-8 digits, empty = remove) sets or removes it.
 
-- `POST /tank` (`height`, `gap`, `count`, `shape0..`, `length0..`, `width0..`, `diameter0..`) **overwrites the saved tank setup in flash.**
+- `POST /tank/valve` (`i`, `open` 1/0) opens/closes a tank's valve. This changes litres, capacity and percent (and the history).
+- `POST /tank` (`height`, `gap`, `count`, `sensor`, `shape0..`, `length0..`, `width0..`, `diameter0..`) **overwrites the saved tank setup in flash.**
 - `POST /time` (`offset` minutes from GMT, `summer` 1/0) saves the time zone; `POST /time/set` (`now` unix) sets the clock by hand.
 - `POST /wifi/save` (`ssid`, `password`) adds a network to the end of the list, or changes its password.
 - `POST /wifi/delete` (`i`) and `POST /wifi/move` (`i`, `dir` -1/1) edit the saved list.

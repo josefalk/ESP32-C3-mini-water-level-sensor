@@ -107,6 +107,9 @@ void handleData();
 void handleNotFound();
 void handleGetTank();
 void handleSetTank();
+void handleSetValve();
+int argIndex();
+void sendResult(const String &err);
 bool requirePin();
 void handleGetLock();
 void handleCheckLock();
@@ -172,6 +175,7 @@ void initWiFi() {
   server.on("/data", handleData);
   server.on("/tank", HTTP_GET, handleGetTank);
   server.on("/tank", HTTP_POST, handleSetTank);
+  server.on("/tank/valve", HTTP_POST, handleSetValve);
   server.on("/api/level", HTTP_GET, handleApiLevel);
   server.on("/api/level.txt", HTTP_GET, handleApiLevelText);
   server.on("/time", HTTP_GET, handleGetTime);
@@ -625,10 +629,11 @@ void appendTankSection(String &html) {
     <small style='color:#888'>Sensor face down to the water when the tank is full.</small></div>
 </div>
 <div id='tankList'></div>
+<div id='sensorPick'></div>
 <button class='scan' id='addTankBtn' onclick='addTank()'>+ Add tank</button>
 <p style='color:#666;font-size:13px'>Tanks connected at the bottom (in parallel) fill to the same level,
   so they must all be the same height. Their shape, length, width and diameter may differ.
-  The sensor can sit in any one of them.</p>
+  The sensor can sit in any one of them; choose which, so closing a valve is counted right.</p>
 <button class='save-calibration' onclick='saveTank()'>Save Tank Setup</button>
 <p id='tankSummary' style='color:#333;font-size:14px'></p>
 )HTML";
@@ -834,6 +839,7 @@ function post(url, body){
     html += "<div class='sensor-value'><span id='litres'>--</span> L <small style='font-size:14px;color:#666'>of <span id='capacity'>--</span> L</small></div>";
     html += "</div>";
     html += "</div>";
+    html += "<div id='valveBox'></div>";   // valve switches, when there are 2+ tanks
     html += "</div>";
 
     // History graph (drawn by the script below)
@@ -852,7 +858,7 @@ function post(url, body){
 <script>
 const SHAPES = {1:'Box (rectangular)', 2:'Round, standing upright', 3:'Round, lying on its side'};
 const MAX_TANKS = 4;
-let tanks = [];
+let tanks = [], sensorTank = 0;
 
 function field(i, key, label){
   return `<div class='calibration-input'><label>${label} (cm):</label>
@@ -864,7 +870,7 @@ function renderTanks(){
   tanks.forEach((t, i) => {
     h += `<div style='border:1px solid #ddd;border-radius:8px;padding:10px;margin:10px 0'>
       <div style='display:flex;justify-content:space-between;align-items:center'>
-        <b>Tank ${i+1}</b>
+        <b>Tank ${i+1}${tanks.length > 1 && i == sensorTank ? ' <small>(sensor)</small>' : ''}</b>
         <button style='background:#f44336;padding:4px 10px;font-size:13px' onclick='removeTank(${i})'>Remove</button>
       </div>
       <select onchange='tanks[${i}].shape = +this.value; renderTanks()'
@@ -880,6 +886,13 @@ function renderTanks(){
     h += `</div></div>`;
   });
   document.getElementById('tankList').innerHTML = h;
+  // Which tank holds the sensor (matters when a valve is closed)
+  document.getElementById('sensorPick').innerHTML = tanks.length < 2 ? '' :
+    `<div class='calibration-input'><label>The sensor is in:</label>
+      <select onchange='sensorTank = +this.value; renderTanks()'
+        style='padding:10px;margin-bottom:10px;border:1px solid #ddd;border-radius:5px'>
+      ${tanks.map((t, i) => `<option value='${i}' ${i == sensorTank ? 'selected' : ''}>Tank ${i+1}</option>`).join('')}
+      </select></div>`;
   const btn = document.getElementById('addTankBtn');
   btn.textContent = tanks.length ? '+ Add parallel tank' : '+ Add tank';
   btn.style.display = tanks.length >= MAX_TANKS ? 'none' : '';
@@ -890,6 +903,7 @@ function addTank(){
 }
 function removeTank(i){
   tanks.splice(i, 1);
+  if (i < sensorTank || sensorTank >= tanks.length) sensorTank = Math.max(0, sensorTank - 1);
   renderTanks();
 }
 function loadTank(){
@@ -897,16 +911,52 @@ function loadTank(){
     document.getElementById('tH').value = d.height;
     document.getElementById('tG').value = d.gap;
     tanks = d.tanks;
+    sensorTank = d.sensor;
     renderTanks();
+    renderValves(d);
   });
 }
+
+// ---- Valves (shown under the level when there are 2+ tanks) ----
+function loadValves(){ fetch('/tank').then(r=>r.json()).then(renderValves); }
+function renderValves(d){
+  const box = document.getElementById('valveBox');
+  if (d.tanks.length < 2){ box.innerHTML = ''; return; }
+  let h = "<div class='sensor-label' style='margin:15px 0 5px'>Valves: a closed tank is not counted</div>";
+  d.tanks.forEach((t, i) => {
+    const note = t.measured ? 'valve open, counted'
+      : !t.open ? 'valve closed' + (t.held >= 0 ? `, holds about ${t.held} L` : '')
+      : 'not measured: the sensor tank is closed';
+    h += `<div class='network-item' style='display:flex;align-items:center;gap:8px;cursor:default;background:white'>
+      <div style='flex:1'><b>Tank ${i+1}</b>${i == d.sensor ? ' <small>(sensor)</small>' : ''}<br>
+        <small style='color:${t.measured ? '#4CAF50' : '#888'}'>${note}</small></div>
+      <button class='mini ${t.open ? 'off' : 'on'}' onclick='setValve(${i},${t.open ? 0 : 1})'>
+        ${t.open ? 'Close valve' : 'Open valve'}</button></div>`;
+  });
+  box.innerHTML = h;
+}
+function setValve(i, open){
+  post('/tank/valve', `i=${i}&open=${open}`).then(m => {
+    if (m.includes('Wrong PIN') && !PIN){      // settings are locked: ask once
+      const p = prompt('Enter the settings PIN');
+      if (!p) return;
+      PIN = p;
+      return setValve(i, open);
+    }
+    if (m != 'OK'){ if (m.includes('PIN')) PIN = ''; alert(m); }
+    if (typeof showLock == 'function') showLock();
+    loadValves(); updateLitres();
+  });
+}
+
 function saveTank(){
   let body = 'height=' + (document.getElementById('tH').value || 0) +
-             '&gap=' + (document.getElementById('tG').value || 0) + '&count=' + tanks.length;
+             '&gap=' + (document.getElementById('tG').value || 0) + '&count=' + tanks.length +
+             '&sensor=' + sensorTank;
   tanks.forEach((t, i) => {
     body += `&shape${i}=${t.shape}&length${i}=${t.length||0}&width${i}=${t.width||0}&diameter${i}=${t.diameter||0}`;
   });
-  post('/tank', body).then(msg => { alert(msg); updateLitres(); });
+  post('/tank', body).then(msg => { alert(msg); updateLitres(); loadValves(); });
 }
 
 // Litres display + live check of the setup
@@ -918,7 +968,8 @@ function updateLitres(){
       document.getElementById('litres').textContent = d.litres;
       document.getElementById('capacity').textContent = d.capacity;
       document.getElementById('litresLabel').textContent =
-        d.tanks > 1 ? `Water in ${d.tanks} tanks` : 'Water in tank';
+        (d.measured > 1 ? `Water in ${d.measured} tanks` : 'Water in tank') +
+        (d.measured < d.tanks ? ` (${d.tanks - d.measured} closed off, not counted)` : '');
     } else box.style.display = 'none';
     document.getElementById('tankSummary').textContent = d.valid
       ? `Check: sensor reads ${d.distance} cm, so the water is ${d.depth} cm deep` +
@@ -1043,7 +1094,8 @@ void handleData() {
   json += "\"percent\":" + String(currentPercent, 1) + ",";
   json += "\"litres\":" + String(litres, 0) + ",";
   json += "\"capacity\":" + String(tankCapacity(), 0) + ",";
-  json += "\"tanks\":" + String(getTankCount());
+  json += "\"tanks\":" + String(getTankCount()) + ",";
+  json += "\"measured\":" + String(getMeasuredCount());   // tanks counted now (valves)
   json += "}";
   server.send(200, "application/json", json);
 }
@@ -1059,6 +1111,8 @@ void handleData() {
 //   litres / capacity = -1 if no tank sizes are set up
 //   age      = seconds since the last good reading
 //   time     = device clock (unix seconds, UTC), 0 if not set
+//   tanks    = tanks set up; measured = tanks counted now (a closed valve
+//              leaves a tank out of litres/capacity/percent)
 //
 // GET /api/level.txt -> "45.2;720"   (percent;litres, -1 when not available)
 //   Easy to read without a JSON library: sscanf(text, "%f;%d", &pct, &l)
@@ -1072,6 +1126,8 @@ void handleApiLevel() {
   json += ",\"distance\":" + String(ok ? currentDistance : -1, 1);
   json += ",\"age\":" + String(lastReadingAt ? (long)((millis() - lastReadingAt) / 1000) : -1L);
   json += ",\"time\":" + String(isClockValid() ? (uint32_t)time(nullptr) : 0);
+  json += ",\"tanks\":" + String(getTankCount());
+  json += ",\"measured\":" + String(getMeasuredCount());
   json += "}";
   server.sendHeader("Access-Control-Allow-Origin", "*");   // allow other web pages to read it too
   server.send(200, "application/json", json);
@@ -1085,11 +1141,14 @@ void handleApiLevelText() {
   server.send(200, "text/plain", txt);
 }
 
-// GET /tank -> {"height":..,"gap":..,"capacity":..,"tanks":[{"shape":1,"length":..,"width":..,"diameter":..},...]}
+// GET /tank -> {"height":..,"gap":..,"capacity":..,"sensor":0,
+//   "tanks":[{"shape":1,"length":..,"width":..,"diameter":..,"open":true,"measured":true,"held":-1},...]}
+// open = valve open; measured = counted in litres now; held = litres in a closed tank (-1 = unknown)
 void handleGetTank() {
   String json = "{\"height\":" + String(getTankHeight(), 1);
   json += ",\"gap\":" + String(getSensorGap(), 1);
   json += ",\"capacity\":" + String(tankCapacity(), 0);
+  json += ",\"sensor\":" + String(getSensorTank());
   json += ",\"tanks\":[";
   for (int i = 0; i < getTankCount(); i++) {
     const TankUnit &t = getTankUnit(i);
@@ -1097,10 +1156,20 @@ void handleGetTank() {
     json += "{\"shape\":" + String(t.shape);
     json += ",\"length\":" + String(t.length, 1);
     json += ",\"width\":" + String(t.width, 1);
-    json += ",\"diameter\":" + String(t.diameter, 1) + "}";
+    json += ",\"diameter\":" + String(t.diameter, 1);
+    json += ",\"open\":" + String(isValveOpen(i) ? "true" : "false");
+    json += ",\"measured\":" + String(isTankMeasured(i) ? "true" : "false");
+    json += ",\"held\":" + String(heldLitres(i), 0) + "}";
   }
   json += "]}";
   server.send(200, "application/json", json);
+}
+
+// POST /tank/valve  i (tank, 0 = tank 1), open (1/0)
+void handleSetValve() {
+  if (!requirePin()) return;
+  float depthNow = sensorDataValid ? waterDepth(currentDistance) : -1;
+  sendResult(setValve(argIndex(), server.arg("open") == "1", depthNow));
 }
 
 // POST /tank  height, gap, count, shape0, length0, width0, diameter0, shape1, ...
@@ -1119,7 +1188,8 @@ void handleSetTank() {
     units[i].width    = server.arg("width" + n).toFloat();
     units[i].diameter = server.arg("diameter" + n).toFloat();
   }
-  String err = setTankSetup(server.arg("height").toFloat(), server.arg("gap").toFloat(), units, count);
+  String err = setTankSetup(server.arg("height").toFloat(), server.arg("gap").toFloat(), units, count,
+                            server.arg("sensor").toInt());
   if (err.length()) {
     server.send(400, "text/plain; charset=utf-8", "Error: " + err);
     return;

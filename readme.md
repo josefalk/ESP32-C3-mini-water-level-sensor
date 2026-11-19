@@ -149,9 +149,20 @@ On the web page, open **⚙ Settings** and go to **Tank Setup** (all sizes are *
   - **Round, standing upright:** diameter.
   - **Round, lying on its side:** length. Its diameter is the tank height.
 - For tanks connected at the bottom, press **+ Add parallel tank** (up to 4). They fill to the same level, so they must all be the same height. Their shapes and sizes may differ.
+- With 2 or more tanks, choose **The sensor is in: Tank N**. This matters when a valve is closed (see *Valves* below).
 - Press **Save Tank Setup**. The line below the button shows how the current reading works out (depth and litres), so you can check the numbers.
 
 Without tank sizes, the level is shown in percent of the height only.
+
+#### Valves (2 or more tanks)
+
+If each tank has a valve, tell the board when you close one. Under the level on the main page, each tank has a **Close valve / Open valve** button. It asks for the settings PIN if Settings is locked.
+
+- **Another tank's valve closed:** that tank is left out of the litres, capacity and percent. The sensor can't see its water any more.
+- **The sensor tank's valve closed:** only the sensor tank is measured. The other tanks are left out.
+- A closed tank shows roughly how much water it held when you closed it.
+- **Open valve:** the tank is counted again, using the parallel connection and its size.
+- The valve states are saved in flash. If you change the number of tanks in Tank Setup, all valves are set back to open.
 
 ### 6. Set the time zone
 
@@ -175,7 +186,7 @@ The live level, history and LED/screen buttons stay open for everyone.
 
 | Section | What it does |
 |---------|--------------|
-| Water Tank Level | Live level bar, distance, percent and litres (updates every second) |
+| Water Tank Level | Live level bar, distance, percent and litres (updates every second); valve buttons when there are 2+ tanks |
 | History | Graph of the last 24 hours (one point per 5 min) or 7 days (one point per hour) |
 | LED / Screen Control | Turn the LED and OLED on or off |
 | **⚙ Settings** (fold-out, PIN if set) | |
@@ -240,6 +251,7 @@ Give the board a fixed IP (a DHCP reservation in your router) so the address nev
 | `depth`, `distance` | Water depth and sensor distance, in cm |
 | `age` | Seconds since the last good sensor reading |
 | `time` | Board's clock (unix seconds, UTC), `0` if not set |
+| `tanks`, `measured` | Tanks set up / tanks counted now. A closed valve leaves a tank out of `litres`, `capacity` and `percent`. |
 
 **`GET /api/level.txt`** returns plain text `percent;litres`, for example `45.2;720`. It's easy to read without a JSON library.
 
@@ -278,7 +290,8 @@ When a PIN is set, every `POST` that changes a setting needs a `pin` field, othe
 | `GET /status` | LED, screen, Wi-Fi mode, IP, SSID, signal, uptime |
 | `GET /history` | 24 h and 7 day history |
 | `GET /lock`, `POST /lock/check`, `POST /lock/set` | Settings PIN: is one set, check it, set/remove it |
-| `GET/POST /tank` | Tank setup |
+| `GET/POST /tank` | Tank setup (`GET` also shows the sensor tank and each valve) |
+| `POST /tank/valve` | Open (`open=1`) or close (`open=0`) the valve of tank `i` (0 = tank 1) |
 | `GET/POST /time`, `POST /time/set` | Time zone, set the clock by hand |
 | `GET /wifi`, `POST /wifi/save`, `/wifi/delete`, `/wifi/move`, `/wifi/use` | Saved Wi-Fi networks |
 | `GET /scan` | Nearby Wi-Fi networks |
@@ -328,7 +341,7 @@ Settings stored in flash (they survive restarts and firmware updates):
 | Namespace | Contents | Cleared by |
 |-----------|----------|------------|
 | `wifi`  | Saved Wi-Fi networks | BOOT button (hold 3 s) |
-| `tank`  | Tank height, sensor gap, tank shapes and sizes | — |
+| `tank`  | Tank height, sensor gap, tank shapes and sizes, sensor tank, valves | — |
 | `clock` | Time zone and summer time | — |
 | `lock`  | Settings PIN | BOOT button (hold 3 s) |
 | `hist`  | 7-day history | — |

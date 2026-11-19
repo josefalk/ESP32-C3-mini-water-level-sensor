@@ -15,7 +15,7 @@ Each feature is a `user-<name>.h/.cpp` pair with an `init<Name>()` called from `
 |------|------|
 | `main.cpp` | Sensor read → 7-sample median smoothing → fan-out to screen/LED/web/history. `loop()` runs every ~300 ms. |
 | `A02YYUW.*` | UART ultrasonic driver (frames `FF H L SUM`, auto-falls back to 0x55 trigger). Returns cm or -1. |
-| `user-tank.*` | Tank geometry → depth, litres, percent. Up to `MAX_TANKS` parallel tanks. |
+| `user-tank.*` | Tank geometry → depth, litres, percent. Up to `MAX_TANKS` parallel tanks, sensor tank, per-tank valves (closed tanks are left out of litres/capacity; sensor tank closed → only it counts). |
 | `user-history.*` | 24 h (5 min, RAM) and 7 day (1 h, flash) ring buffers, NTP timestamps. |
 | `user-clock.*` | NTP sync, time zone (GMT offset + summer time) via POSIX `TZ`, manual clock set. Timestamps stay UTC. |
 | `user-networks.*` | Saved Wi-Fi list (max 5, priority order) in flash; default from `secrets.h`. |
