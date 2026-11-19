@@ -23,7 +23,7 @@ Other devices can read it through a simple **API**.
 - **Steady readings.** The sensor value is a median of the last 7 readings, so ripples and stray echoes are ignored.
 - **OLED display:** IP address, current reading and a level bar. A button turns the screen on or off.
 - **Status LED:** red / yellow / green by level, or switched on and off by hand from the web page.
-- **Web page** at `http://watertank.local`: live level, 24-hour and 7-day history graph, and a **Settings** section (tank setup, time zone, Wi-Fi) that can be protected with a PIN.
+- **Web page** at `http://watertank.local`: live level, 24-hour and 7-day history graph, and a **Settings** section (tank setup, time zone, Wi-Fi) that can be protected with a PIN. Light and dark mode: follows the phone/PC by default, or press the ◐ button at the top to choose.
 - **Up to 5 Wi-Fi networks** in priority order. If one fails, the board moves to the next one, and it switches back to the main network when that returns.
 - **Setup mode:** if no network works, the board opens its own `ESP32-Config` Wi-Fi network for setup.
 - **Time zone** setting (GMT offset + summer time). The clock is set from the internet, or from your phone when there's no internet.

@@ -470,17 +470,17 @@ String jsonStr(const String &s) {
 void appendWifiSection(String &html) {
   html += R"HTML(
 <h2 style='margin-top:30px'>Wi-Fi Networks</h2>
-<p style='color:#666;font-size:14px'>The device joins the highest network in this list that works.
+<p style='color:var(--muted);font-size:14px'>The device joins the highest network in this list that works.
   When it is on a lower one, it checks every <span id='chkMin'>10</span> minutes whether a higher one
   is back in range and switches to it. If none work, it opens the <b>ESP32-Config</b> setup network.</p>
 <div id='netList'><p>Loading...</p></div>
-<h3 style='color:#666'>Add a network</h3>
+<h3 style='color:var(--muted)'>Add a network</h3>
 <button class='scan' onclick='scanNetworks()'>📡 Scan Networks</button>
 <div id='networks' class='network-list'></div>
 <input type='text' id='ssid' placeholder='Network name (SSID)' maxlength='32'>
 <input type='password' id='password' placeholder='Password (empty for an open network)' maxlength='63'>
 <button class='connect-btn' onclick='saveNet()'>Save network</button>
-<p style='color:#888;font-size:13px'>New networks go to the bottom of the list; use ▲ to make one the main network.
+<p style='color:var(--faint);font-size:13px'>New networks go to the bottom of the list; use ▲ to make one the main network.
   Saving a name that is already in the list changes its password.</p>
 <script>
 let nets = [], scanned = [];
@@ -547,16 +547,16 @@ window.addEventListener('load', loadNets);
 void appendTimeSection(String &html) {
   html += R"HTML(
 <h2 style='margin-top:30px'>Time</h2>
-<p style='font-size:18px'>Device time: <b id='devTime'>--</b> <small id='tzName' style='color:#666'></small></p>
+<p style='font-size:18px'>Device time: <b id='devTime'>--</b> <small id='tzName' style='color:var(--muted)'></small></p>
 <div class='calibration-group'>
   <div class='calibration-input'><label>Time zone:</label>
-    <select id='tzSel' style='padding:10px;border:1px solid #ddd;border-radius:5px'></select></div>
+    <select id='tzSel' style='padding:10px;border:1px solid var(--border);border-radius:5px'></select></div>
   <div class='calibration-input'><label>Summer time:</label>
     <label style='padding-top:10px'><input type='checkbox' id='tzSummer' style='width:auto;margin:0 6px 0 0'>+1 hour</label></div>
 </div>
 <button class='scan' onclick='useBrowserTz()'>Use this phone's time zone</button>
 <button class='save-calibration' onclick='saveTz()'>Save time zone</button>
-<p id='clockNote' style='color:#666;font-size:13px'></p>
+<p id='clockNote' style='color:var(--muted);font-size:13px'></p>
 <script>
 let clk = null, clkAt = 0, tzMin = null;
 const fmtTz = m => 'GMT' + (m < 0 ? '-' : '+') + Math.floor(Math.abs(m) / 60) +
@@ -619,23 +619,23 @@ window.addEventListener('load', () => { loadTime(); setInterval(showTime, 1000);
 void appendTankSection(String &html) {
   html += R"HTML(
 <h2>Tank Setup</h2>
-<p style='color:#666;font-size:14px'>All sizes are <b>inside</b> measurements in cm.</p>
+<p style='color:var(--muted);font-size:14px'>All sizes are <b>inside</b> measurements in cm.</p>
 <div class='calibration-group'>
   <div class='calibration-input'><label>Tank height (cm):</label>
     <input type='number' id='tH' step='0.1' min='0'>
-    <small style='color:#888'>Bottom of the tank up to the full water line.</small></div>
+    <small style='color:var(--faint)'>Bottom of the tank up to the full water line.</small></div>
   <div class='calibration-input'><label>Sensor gap (cm):</label>
     <input type='number' id='tG' step='0.1' min='0'>
-    <small style='color:#888'>Sensor face down to the water when the tank is full.</small></div>
+    <small style='color:var(--faint)'>Sensor face down to the water when the tank is full.</small></div>
 </div>
 <div id='tankList'></div>
 <div id='sensorPick'></div>
 <button class='scan' id='addTankBtn' onclick='addTank()'>+ Add tank</button>
-<p style='color:#666;font-size:13px'>Tanks connected at the bottom (in parallel) fill to the same level,
+<p style='color:var(--muted);font-size:13px'>Tanks connected at the bottom (in parallel) fill to the same level,
   so they must all be the same height. Their shape, length, width and diameter may differ.
   The sensor can sit in any one of them; choose which, so closing a valve is counted right.</p>
 <button class='save-calibration' onclick='saveTank()'>Save Tank Setup</button>
-<p id='tankSummary' style='color:#333;font-size:14px'></p>
+<p id='tankSummary' style='color:var(--text);font-size:14px'></p>
 )HTML";
 }
 
@@ -645,7 +645,7 @@ void appendSettingsStart(String &html, bool open) {
   html += "<details id='settingsBox' style='margin-top:30px'";
   if (open) html += " open";
   html += R"HTML(>
-<summary style='font-size:22px;font-weight:bold;color:#666;cursor:pointer;padding:10px 0;border-bottom:2px solid #4CAF50'>⚙ Settings</summary>
+<summary style='font-size:22px;font-weight:bold;color:var(--muted);cursor:pointer;padding:10px 0;border-bottom:2px solid #4CAF50'>⚙ Settings</summary>
 <div id='lockBox' style='display:none'>
   <p>The settings are protected with a PIN.</p>
   <input type='password' id='pinIn' inputmode='numeric' maxlength='8' placeholder='PIN'
@@ -660,12 +660,12 @@ void appendSettingsStart(String &html, bool open) {
 void appendSettingsEnd(String &html) {
   html += R"HTML(
 <h2 style='margin-top:30px'>Settings PIN</h2>
-<p id='pinState' style='color:#666;font-size:14px'></p>
+<p id='pinState' style='color:var(--muted);font-size:14px'></p>
 <input type='password' id='newPin' inputmode='numeric' maxlength='8' placeholder='New PIN (4-8 digits)'>
 <button class='save-calibration' onclick='savePin()'>Save PIN</button>
 <button class='off' id='rmPinBtn' style='width:100%;display:none' onclick='removePin()'>Remove PIN</button>
 <button class='scan' id='lockBtn' style='display:none;background:#607D8B' onclick='lockNow()'>🔒 Lock settings now</button>
-<p style='color:#888;font-size:13px'>Forgot the PIN? Hold the BOOT button on the board for 3 seconds.
+<p style='color:var(--faint);font-size:13px'>Forgot the PIN? Hold the BOOT button on the board for 3 seconds.
   This removes the PIN <b>and</b> all saved Wi-Fi networks.</p>
 </div>
 </details>
@@ -734,39 +734,79 @@ void handleRoot() {
   String html = "<!DOCTYPE html><html><head>";
   html += "<meta charset='utf-8'>";   // so symbols like ▲ ▼ 📡 show correctly
   html += "<meta name='viewport' content='width=device-width, initial-scale=1.0'>";
+
+  // Light / dark theme: "auto" follows the phone/PC; the choice is kept in
+  // this browser only. Set before the page draws, so it doesn't flash white.
+  html += R"HTML(<script>
+const THEMES = {auto:'◐ Auto', dark:'🌙 Dark', light:'☀ Light'};
+let theme = 'auto';
+try { theme = localStorage.getItem('theme') || 'auto'; } catch(e) {}
+function applyTheme(){
+  if (theme == 'auto') delete document.documentElement.dataset.theme;
+  else document.documentElement.dataset.theme = theme;
+  const b = document.getElementById('themeBtn');
+  if (b) b.textContent = THEMES[theme];
+}
+function cycleTheme(){
+  theme = theme == 'auto' ? 'dark' : theme == 'dark' ? 'light' : 'auto';
+  try { localStorage.setItem('theme', theme); } catch(e) {}
+  applyTheme();
+}
+applyTheme();
+window.addEventListener('DOMContentLoaded', applyTheme);
+</script>)HTML";
   html += "<style>";
-  html += "body { font-family: Arial, sans-serif; margin: 20px; background: #f5f5f5; }";
-  html += ".container { max-width: 600px; margin: 0 auto; background: white; padding: 20px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }";
-  html += "h1 { color: #333; text-align: center; }";
-  html += "h2 { color: #666; border-bottom: 2px solid #4CAF50; padding-bottom: 10px; }";
-  html += "button { padding: 12px 24px; margin: 5px; font-size: 16px; cursor: pointer; border: none; border-radius: 5px; color: white; }";
-  html += ".scan { background-color: #2196F3; width: 100%; }";
-  html += ".on { background-color: #4CAF50; }";
-  html += ".off { background-color: #f44336; }";
-  html += "button:hover { opacity: 0.8; }";
-  html += ".info { margin-top: 20px; padding: 15px; background: #e3f2fd; border-radius: 5px; }";
-  html += ".network-list { margin-top: 20px; }";
-  html += ".network-item { padding: 10px; margin: 5px 0; background: #f0f0f0; border-radius: 5px; cursor: pointer; }";
-  html += ".network-item:hover { background: #e0e0e0; }";
-  html += "input { width: 100%; padding: 10px; margin: 10px 0; border: 1px solid #ddd; border-radius: 5px; box-sizing: border-box; }";
-  html += ".connect-btn { background-color: #4CAF50; width: 100%; }";
-  html += ".warning { background: #fff3cd; border-left: 4px solid #ffc107; padding: 10px; margin: 10px 0; }";
-  html += ".tank-container { margin: 20px 0; padding: 20px; background: #f8f9fa; border-radius: 10px; }";
-  html += ".tank { width: 100%; height: 30px; background: #e0e0e0; border: 2px solid #333; border-radius: 5px; position: relative; overflow: hidden; }";
-  html += ".tank-fill { height: 100%; background: linear-gradient(90deg, #4CAF50, #8BC34A); transition: width 0.5s; }";
-  html += ".tank-fill.low { background: linear-gradient(90deg, #f44336, #ff5722); }";
-  html += ".tank-fill.medium { background: linear-gradient(90deg, #FF9800, #FFC107); }";
-  html += ".sensor-data { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 15px; }";
-  html += ".sensor-item { padding: 15px; background: white; border-radius: 5px; text-align: center; }";
-  html += ".sensor-label { font-size: 12px; color: #666; }";
-  html += ".sensor-value { font-size: 24px; font-weight: bold; color: #333; }";
-  html += ".calibration-group { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 15px 0; }";
-  html += ".calibration-input { display: flex; flex-direction: column; }";
-  html += ".calibration-input label { font-size: 14px; color: #666; margin-bottom: 5px; }";
-  html += ".save-calibration { background-color: #FF9800; width: 100%; }";
-  html += ".range { background:#e0e0e0; color:#333; padding:8px 16px; } .range.on { background:#2196F3; color:white; }";
-  html += "select { width:100%; font-size:16px; }";
-  html += ".mini { padding:6px 10px; margin:0; font-size:14px; background:#607D8B; } .mini.on { background:#4CAF50; } .mini.off { background:#f44336; } button:disabled { opacity:0.3; cursor:default; }";
+  // Colours are CSS variables so the page can switch between light and dark.
+  // "Auto" follows the phone/PC setting; the button at the top forces one.
+  html += R"CSS(
+:root { color-scheme: light;
+  --bg:#f5f5f5; --card:#fff; --panel:#f8f9fa; --item:#f0f0f0; --item-hover:#e0e0e0;
+  --text:#333; --muted:#666; --faint:#888; --border:#ddd; --grid:#e5e5e5; --grid2:#f0f0f0;
+  --input:#fff; --info:#e3f2fd; --warn:#fff3cd; --track:#e0e0e0; --shadow:rgba(0,0,0,0.1); }
+@media (prefers-color-scheme: dark) { :root:not([data-theme='light']) { color-scheme: dark;
+  --bg:#121417; --card:#1e2227; --panel:#262b31; --item:#2c3239; --item-hover:#363d45;
+  --text:#e6e6e6; --muted:#a9b0b8; --faint:#8a929b; --border:#3d444c; --grid:#333a42; --grid2:#2a3037;
+  --input:#262b31; --info:#1c2c3a; --warn:#3a3220; --track:#363d45; --shadow:rgba(0,0,0,0.5); } }
+:root[data-theme='dark'] { color-scheme: dark;
+  --bg:#121417; --card:#1e2227; --panel:#262b31; --item:#2c3239; --item-hover:#363d45;
+  --text:#e6e6e6; --muted:#a9b0b8; --faint:#8a929b; --border:#3d444c; --grid:#333a42; --grid2:#2a3037;
+  --input:#262b31; --info:#1c2c3a; --warn:#3a3220; --track:#363d45; --shadow:rgba(0,0,0,0.5); }
+body { font-family: Arial, sans-serif; margin: 20px; background: var(--bg); color: var(--text); }
+.container { max-width: 600px; margin: 0 auto; background: var(--card); padding: 20px; border-radius: 10px; box-shadow: 0 2px 10px var(--shadow); }
+h1 { color: var(--text); text-align: center; }
+h2, h3 { color: var(--muted); }
+h2 { border-bottom: 2px solid #4CAF50; padding-bottom: 10px; }
+button { padding: 12px 24px; margin: 5px; font-size: 16px; cursor: pointer; border: none; border-radius: 5px; color: white; }
+.scan { background-color: #2196F3; width: 100%; }
+.on { background-color: #4CAF50; }
+.off { background-color: #f44336; }
+button:hover { opacity: 0.8; }
+.info { margin-top: 20px; padding: 15px; background: var(--info); border-radius: 5px; }
+.network-list { margin-top: 20px; }
+.network-item { padding: 10px; margin: 5px 0; background: var(--item); border-radius: 5px; cursor: pointer; }
+.network-item:hover { background: var(--item-hover); }
+input, select { background: var(--input); color: var(--text); }
+input { width: 100%; padding: 10px; margin: 10px 0; border: 1px solid var(--border); border-radius: 5px; box-sizing: border-box; }
+.connect-btn { background-color: #4CAF50; width: 100%; }
+.warning { background: var(--warn); border-left: 4px solid #ffc107; padding: 10px; margin: 10px 0; }
+.tank-container { margin: 20px 0; padding: 20px; background: var(--panel); border-radius: 10px; }
+.tank { width: 100%; height: 30px; background: var(--track); border: 2px solid var(--text); border-radius: 5px; position: relative; overflow: hidden; }
+.tank-fill { height: 100%; background: linear-gradient(90deg, #4CAF50, #8BC34A); transition: width 0.5s; }
+.tank-fill.low { background: linear-gradient(90deg, #f44336, #ff5722); }
+.tank-fill.medium { background: linear-gradient(90deg, #FF9800, #FFC107); }
+.sensor-data { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 15px; }
+.sensor-item { padding: 15px; background: var(--card); border-radius: 5px; text-align: center; }
+.sensor-label { font-size: 12px; color: var(--muted); }
+.sensor-value { font-size: 24px; font-weight: bold; color: var(--text); }
+.calibration-group { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 15px 0; }
+.calibration-input { display: flex; flex-direction: column; }
+.calibration-input label { font-size: 14px; color: var(--muted); margin-bottom: 5px; }
+.save-calibration { background-color: #FF9800; width: 100%; }
+.range { background: var(--track); color: var(--text); padding:8px 16px; } .range.on { background:#2196F3; color:white; }
+select { width:100%; font-size:16px; }
+.mini { padding:6px 10px; margin:0; font-size:14px; background:#607D8B; } .mini.on { background:#4CAF50; } .mini.off { background:#f44336; } button:disabled { opacity:0.3; cursor:default; }
+.theme-btn { float:right; margin:0; padding:6px 10px; font-size:14px; background:var(--item); color:var(--text); border:1px solid var(--border); }
+)CSS";
   html += "</style>";
   html += "<script>";
 
@@ -807,6 +847,7 @@ function post(url, body){
   html += "</script>";
   html += "</head><body>";
   html += "<div class='container'>";
+  html += "<button id='themeBtn' class='theme-btn' title='Light / dark' onclick='cycleTheme()'>◐ Auto</button>";
   html += "<h1>Water Monitor</h1>";
 
   if (isAPMode) {
@@ -836,7 +877,7 @@ function post(url, body){
     html += "</div>";
     html += "<div class='sensor-item' id='litresBox' style='grid-column: span 2; display:none'>";
     html += "<div class='sensor-label' id='litresLabel'>Water in tank</div>";
-    html += "<div class='sensor-value'><span id='litres'>--</span> L <small style='font-size:14px;color:#666'>of <span id='capacity'>--</span> L</small></div>";
+    html += "<div class='sensor-value'><span id='litres'>--</span> L <small style='font-size:14px;color:var(--muted)'>of <span id='capacity'>--</span> L</small></div>";
     html += "</div>";
     html += "</div>";
     html += "<div id='valveBox'></div>";   // valve switches, when there are 2+ tanks
@@ -850,7 +891,7 @@ function post(url, body){
   <button id='rWeek' class='range' onclick="setRange('week')">7 days</button>
 </div>
 <div id='chartWrap' style='margin-top:10px'><svg id='chart' viewBox='0 0 560 210' style='width:100%;height:auto'></svg></div>
-<p id='chartNote' style='color:#666;font-size:13px'></p>
+<p id='chartNote' style='color:var(--muted);font-size:13px'></p>
 )HTML";
 
     // Scripts for the tank setup (in Settings), litres display and history chart
@@ -868,20 +909,20 @@ function field(i, key, label){
 function renderTanks(){
   let h = '';
   tanks.forEach((t, i) => {
-    h += `<div style='border:1px solid #ddd;border-radius:8px;padding:10px;margin:10px 0'>
+    h += `<div style='border:1px solid var(--border);border-radius:8px;padding:10px;margin:10px 0'>
       <div style='display:flex;justify-content:space-between;align-items:center'>
         <b>Tank ${i+1}${tanks.length > 1 && i == sensorTank ? ' <small>(sensor)</small>' : ''}</b>
         <button style='background:#f44336;padding:4px 10px;font-size:13px' onclick='removeTank(${i})'>Remove</button>
       </div>
       <select onchange='tanks[${i}].shape = +this.value; renderTanks()'
-        style='padding:10px;margin:10px 0;border:1px solid #ddd;border-radius:5px'>
+        style='padding:10px;margin:10px 0;border:1px solid var(--border);border-radius:5px'>
         ${Object.entries(SHAPES).map(([v, n]) => `<option value='${v}' ${t.shape == v ? 'selected' : ''}>${n}</option>`).join('')}
       </select>
       <div class='calibration-group' style='margin:0'>`;
     if (t.shape == 1) h += field(i, 'length', 'Length') + field(i, 'width', 'Width');
     if (t.shape == 2) h += field(i, 'diameter', 'Diameter');
     if (t.shape == 3) h += field(i, 'length', 'Length') +
-      `<div class='calibration-input'><label>Diameter:</label><small style='color:#888;padding-top:12px'>
+      `<div class='calibration-input'><label>Diameter:</label><small style='color:var(--faint);padding-top:12px'>
         = tank height</small></div>`;
     h += `</div></div>`;
   });
@@ -890,7 +931,7 @@ function renderTanks(){
   document.getElementById('sensorPick').innerHTML = tanks.length < 2 ? '' :
     `<div class='calibration-input'><label>The sensor is in:</label>
       <select onchange='sensorTank = +this.value; renderTanks()'
-        style='padding:10px;margin-bottom:10px;border:1px solid #ddd;border-radius:5px'>
+        style='padding:10px;margin-bottom:10px;border:1px solid var(--border);border-radius:5px'>
       ${tanks.map((t, i) => `<option value='${i}' ${i == sensorTank ? 'selected' : ''}>Tank ${i+1}</option>`).join('')}
       </select></div>`;
   const btn = document.getElementById('addTankBtn');
@@ -927,9 +968,9 @@ function renderValves(d){
     const note = t.measured ? 'valve open, counted'
       : !t.open ? 'valve closed' + (t.held >= 0 ? `, holds about ${t.held} L` : '')
       : 'not measured: the sensor tank is closed';
-    h += `<div class='network-item' style='display:flex;align-items:center;gap:8px;cursor:default;background:white'>
+    h += `<div class='network-item' style='display:flex;align-items:center;gap:8px;cursor:default;background:var(--card)'>
       <div style='flex:1'><b>Tank ${i+1}</b>${i == d.sensor ? ' <small>(sensor)</small>' : ''}<br>
-        <small style='color:${t.measured ? '#4CAF50' : '#888'}'>${note}</small></div>
+        <small style='color:${t.measured ? '#4CAF50' : 'var(--faint)'}'>${note}</small></div>
       <button class='mini ${t.open ? 'off' : 'on'}' onclick='setValve(${i},${t.open ? 0 : 1})'>
         ${t.open ? 'Close valve' : 'Open valve'}</button></div>`;
   });
@@ -1000,8 +1041,8 @@ function drawChart(){
   let s = '';
   // grid + % labels
   for (let p = 0; p <= 100; p += 25){
-    s += `<line x1='${L}' x2='${W-R}' y1='${y(p)}' y2='${y(p)}' stroke='#e5e5e5'/>`;
-    s += `<text x='${L-6}' y='${y(p)+4}' text-anchor='end' font-size='11' fill='#888'>${p}%</text>`;
+    s += `<line x1='${L}' x2='${W-R}' y1='${y(p)}' y2='${y(p)}' style='stroke:var(--grid)'/>`;
+    s += `<text x='${L-6}' y='${y(p)+4}' text-anchor='end' font-size='11' style='fill:var(--faint)'>${p}%</text>`;
   }
   // time labels: every 6 h (24 h view) or every day (7 day view)
   const tick = range=='day' ? 6*3600 : 86400;
@@ -1012,8 +1053,8 @@ function drawChart(){
     const d = new Date((t + tz) * 1000);              // read with getUTC... = device local time
     const lbl = range=='day' ? d.getUTCHours().toString().padStart(2,'0') + ':00'
                              : d.toLocaleDateString(undefined, {weekday:'short', timeZone:'UTC'});
-    s += `<line x1='${x(t)}' x2='${x(t)}' y1='${T}' y2='${H-B}' stroke='#f0f0f0'/>`;
-    s += `<text x='${x(t)}' y='${H-8}' text-anchor='middle' font-size='11' fill='#888'>${lbl}</text>`;
+    s += `<line x1='${x(t)}' x2='${x(t)}' y1='${T}' y2='${H-B}' style='stroke:var(--grid2)'/>`;
+    s += `<text x='${x(t)}' y='${H-8}' text-anchor='middle' font-size='11' style='fill:var(--faint)'>${lbl}</text>`;
   }
   // data line, split where there are gaps (device was off)
   let seg = [], segs = [];
