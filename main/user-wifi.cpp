@@ -14,6 +14,7 @@
 #include "user-tank.h"
 #include "user-networks.h"
 #include "user-clock.h"
+#include "user-lock.h"
 
 // Network name of the device: the web page is at http://watertank.local
 // and OTA uploads go to watertank.local (see platformio.ini).
@@ -106,6 +107,10 @@ void handleData();
 void handleNotFound();
 void handleGetTank();
 void handleSetTank();
+bool requirePin();
+void handleGetLock();
+void handleCheckLock();
+void handleSetLock();
 
 // ---------------- mDNS, OTA, clock ----------------
 // Started once, the first time we join a Wi-Fi network. They keep working
@@ -172,6 +177,9 @@ void initWiFi() {
   server.on("/time", HTTP_GET, handleGetTime);
   server.on("/time", HTTP_POST, handleSetTime);
   server.on("/time/set", HTTP_POST, handleSetClock);
+  server.on("/lock", HTTP_GET, handleGetLock);
+  server.on("/lock/check", HTTP_POST, handleCheckLock);
+  server.on("/lock/set", HTTP_POST, handleSetLock);
   server.on("/history", []() { server.send(200, "application/json", getHistoryJson()); });
   server.onNotFound(handleNotFound);
 
@@ -231,7 +239,7 @@ void checkResetButton() {
 
     if (pressDuration >= 3000) {
       Serial.println("Reset button held for 3 seconds!");
-      Serial.println("Forgetting all saved Wi-Fi networks and restarting...");
+      Serial.println("Forgetting all saved Wi-Fi networks and the settings PIN, restarting...");
 
       ledOn(255, 0, 0);
       delay(500);
@@ -242,6 +250,7 @@ void checkResetButton() {
       ledOff();
 
       clearNetworks();
+      clearPin();                 // so a forgotten PIN can't lock you out
 
       Serial.println("Restarting...");
       delay(500);
@@ -472,10 +481,6 @@ void appendWifiSection(String &html) {
 <script>
 let nets = [], scanned = [];
 function esc(s){ return String(s).replace(/[&<>"']/g, c => '&#' + c.charCodeAt(0) + ';'); }
-function post(url, body){
-  return fetch(url, {method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body})
-    .then(r => r.text());
-}
 function loadNets(){
   fetch('/wifi').then(r=>r.json()).then(d=>{
     nets = d.nets;
@@ -595,14 +600,123 @@ function useBrowserTz(){
 function saveTz(){
   const body = 'offset=' + document.getElementById('tzSel').value +
                '&summer=' + (document.getElementById('tzSummer').checked ? 1 : 0);
-  fetch('/time', {method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body})
-    .then(r=>r.text()).then(m => { alert(m == 'OK' ? 'Time zone saved.' : m); loadTime(); });
+  post('/time', body).then(m => { alert(m == 'OK' ? 'Time zone saved.' : m); loadTime(); });
 }
 function setClockFromPhone(){
-  fetch('/time/set', {method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'},
-    body: 'now=' + Math.floor(Date.now() / 1000)}).then(r=>r.text()).then(m => { if (m != 'OK') alert(m); loadTime(); });
+  post('/time/set', 'now=' + Math.floor(Date.now() / 1000)).then(m => { if (m != 'OK') alert(m); loadTime(); });
 }
 window.addEventListener('load', () => { loadTime(); setInterval(showTime, 1000); setInterval(loadTime, 60000); });
+</script>
+)HTML";
+}
+
+// "Tank Setup" part of Settings: height + sensor gap + one or more parallel
+// tanks. Its script is in handleRoot() (it also drives the litres display).
+void appendTankSection(String &html) {
+  html += R"HTML(
+<h2>Tank Setup</h2>
+<p style='color:#666;font-size:14px'>All sizes are <b>inside</b> measurements in cm.</p>
+<div class='calibration-group'>
+  <div class='calibration-input'><label>Tank height (cm):</label>
+    <input type='number' id='tH' step='0.1' min='0'>
+    <small style='color:#888'>Bottom of the tank up to the full water line.</small></div>
+  <div class='calibration-input'><label>Sensor gap (cm):</label>
+    <input type='number' id='tG' step='0.1' min='0'>
+    <small style='color:#888'>Sensor face down to the water when the tank is full.</small></div>
+</div>
+<div id='tankList'></div>
+<button class='scan' id='addTankBtn' onclick='addTank()'>+ Add tank</button>
+<p style='color:#666;font-size:13px'>Tanks connected at the bottom (in parallel) fill to the same level,
+  so they must all be the same height. Their shape, length, width and diameter may differ.
+  The sensor can sit in any one of them.</p>
+<button class='save-calibration' onclick='saveTank()'>Save Tank Setup</button>
+<p id='tankSummary' style='color:#333;font-size:14px'></p>
+)HTML";
+}
+
+// Start of the "Settings" part of the page: a fold-out box that asks for the
+// PIN first when one is set. open = start unfolded (setup mode).
+void appendSettingsStart(String &html, bool open) {
+  html += "<details id='settingsBox' style='margin-top:30px'";
+  if (open) html += " open";
+  html += R"HTML(>
+<summary style='font-size:22px;font-weight:bold;color:#666;cursor:pointer;padding:10px 0;border-bottom:2px solid #4CAF50'>⚙ Settings</summary>
+<div id='lockBox' style='display:none'>
+  <p>The settings are protected with a PIN.</p>
+  <input type='password' id='pinIn' inputmode='numeric' maxlength='8' placeholder='PIN'
+    onkeydown="if (event.key == 'Enter') unlock()">
+  <button class='connect-btn' onclick='unlock()'>🔒 Unlock</button>
+</div>
+<div id='settingsBody' style='display:none'>
+)HTML";
+}
+
+// End of Settings: the PIN controls, then the script that locks/unlocks.
+void appendSettingsEnd(String &html) {
+  html += R"HTML(
+<h2 style='margin-top:30px'>Settings PIN</h2>
+<p id='pinState' style='color:#666;font-size:14px'></p>
+<input type='password' id='newPin' inputmode='numeric' maxlength='8' placeholder='New PIN (4-8 digits)'>
+<button class='save-calibration' onclick='savePin()'>Save PIN</button>
+<button class='off' id='rmPinBtn' style='width:100%;display:none' onclick='removePin()'>Remove PIN</button>
+<button class='scan' id='lockBtn' style='display:none;background:#607D8B' onclick='lockNow()'>🔒 Lock settings now</button>
+<p style='color:#888;font-size:13px'>Forgot the PIN? Hold the BOOT button on the board for 3 seconds.
+  This removes the PIN <b>and</b> all saved Wi-Fi networks.</p>
+</div>
+</details>
+<script>
+let hasPin = false;
+function keepPin(p){ PIN = p; try { sessionStorage.setItem('pin', p); } catch(e) {} }
+function showLock(){
+  const locked = hasPin && !PIN;
+  document.getElementById('lockBox').style.display = locked ? '' : 'none';
+  document.getElementById('settingsBody').style.display = locked ? 'none' : '';
+  document.getElementById('rmPinBtn').style.display = hasPin ? '' : 'none';
+  document.getElementById('lockBtn').style.display = hasPin ? '' : 'none';
+  document.getElementById('pinState').textContent = hasPin
+    ? 'A PIN is set: it is needed to change the settings.'
+    : 'No PIN: anyone on your Wi-Fi can change the settings. Set a PIN to protect them.';
+}
+function loadLock(){
+  fetch('/lock').then(r=>r.json()).then(d=>{
+    hasPin = d.pin;
+    if (!hasPin) keepPin('');
+    if (hasPin && PIN){             // remembered from earlier: check it is still right
+      post('/lock/check', '').then(m => { if (m != 'OK') keepPin(''); showLock(); });
+    } else showLock();
+  });
+}
+function unlock(){
+  const p = document.getElementById('pinIn').value;
+  if (!p) return;
+  keepPin(p);
+  post('/lock/check', '').then(m => {
+    if (m != 'OK'){ keepPin(''); alert(m); }
+    document.getElementById('pinIn').value = '';
+    showLock();
+  });
+}
+function lockNow(){ keepPin(''); showLock(); }
+function savePin(){
+  const p = document.getElementById('newPin').value;
+  if (!/^[0-9]{4,8}$/.test(p)){ alert('The PIN must be 4 to 8 digits'); return; }
+  post('/lock/set', 'new=' + p).then(m => {
+    if (m != 'OK'){ alert(m); return; }
+    hasPin = true; keepPin(p);
+    document.getElementById('newPin').value = '';
+    alert('PIN saved. Remember it: it is needed to change the settings.');
+    showLock();
+  });
+}
+function removePin(){
+  if (!confirm('Remove the PIN? Anyone on your Wi-Fi will be able to change the settings.')) return;
+  post('/lock/set', 'new=').then(m => {
+    if (m != 'OK'){ alert(m); return; }
+    hasPin = false; keepPin('');
+    showLock();
+  });
+}
+window.addEventListener('load', loadLock);
 </script>
 )HTML";
 }
@@ -653,6 +767,18 @@ void handleRoot() {
   html += "function led(state){ fetch('/led?state='+state).then(r=>r.text()).then(console.log); }";
   html += "function screen(state){ fetch('/screen?state='+state).then(r=>r.text()).then(console.log); }";
 
+  // Send a setting to the device. The settings PIN (if one is set and the
+  // user has unlocked the Settings) goes along with every request.
+  html += R"HTML(
+let PIN = '';
+try { PIN = sessionStorage.getItem('pin') || ''; } catch(e) {}
+function post(url, body){
+  body = (body ? body + '&' : '') + 'pin=' + encodeURIComponent(PIN);
+  return fetch(url, {method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body})
+    .then(r => r.text());
+}
+)HTML";
+
   // Auto-refresh sensor data
   html += "function updateSensorData() {";
   html += "  fetch('/data').then(r => r.json()).then(data => {";
@@ -678,8 +804,10 @@ void handleRoot() {
   if (isAPMode) {
     html += "<div class='warning'>⚠ <strong>Setup Mode</strong><br>None of the saved Wi-Fi networks could be joined. "
             "Add or fix a network below. The device also retries the saved networks every minute.</div>";
+    appendSettingsStart(html, true);
     appendWifiSection(html);
     appendTimeSection(html);
+    appendSettingsEnd(html);
 
   } else {
 
@@ -716,26 +844,8 @@ void handleRoot() {
 <p id='chartNote' style='color:#666;font-size:13px'></p>
 )HTML";
 
-    // Tank setup: height + sensor gap + one or more parallel tanks
+    // Scripts for the tank setup (in Settings), litres display and history chart
     html += R"HTML(
-<h2>Tank Setup</h2>
-<p style='color:#666;font-size:14px'>All sizes are <b>inside</b> measurements in cm.</p>
-<div class='calibration-group'>
-  <div class='calibration-input'><label>Tank height (cm):</label>
-    <input type='number' id='tH' step='0.1' min='0'>
-    <small style='color:#888'>Bottom of the tank up to the full water line.</small></div>
-  <div class='calibration-input'><label>Sensor gap (cm):</label>
-    <input type='number' id='tG' step='0.1' min='0'>
-    <small style='color:#888'>Sensor face down to the water when the tank is full.</small></div>
-</div>
-<div id='tankList'></div>
-<button class='scan' id='addTankBtn' onclick='addTank()'>+ Add tank</button>
-<p style='color:#666;font-size:13px'>Tanks connected at the bottom (in parallel) fill to the same level,
-  so they must all be the same height. Their shape, length, width and diameter may differ.
-  The sensor can sit in any one of them.</p>
-<button class='save-calibration' onclick='saveTank()'>Save Tank Setup</button>
-<p id='tankSummary' style='color:#333;font-size:14px'></p>
-
 <script>
 const SHAPES = {1:'Box (rectangular)', 2:'Round, standing upright', 3:'Round, lying on its side'};
 const MAX_TANKS = 4;
@@ -793,8 +903,7 @@ function saveTank(){
   tanks.forEach((t, i) => {
     body += `&shape${i}=${t.shape}&length${i}=${t.length||0}&width${i}=${t.width||0}&diameter${i}=${t.diameter||0}`;
   });
-  fetch('/tank', {method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body})
-    .then(r=>r.text()).then(msg => { alert(msg); updateLitres(); });
+  post('/tank', body).then(msg => { alert(msg); updateLitres(); });
 }
 
 // Litres display + live check of the setup
@@ -895,8 +1004,11 @@ window.addEventListener('load', () => {
     html += "<button class='on' onclick=\"screen('on')\">Turn Screen ON</button>";
     html += "<button class='off' onclick=\"screen('off')\">Turn Screen OFF</button>";
 
+    appendSettingsStart(html, false);
+    appendTankSection(html);
     appendTimeSection(html);
     appendWifiSection(html);
+    appendSettingsEnd(html);
   }
 
   // Info section
@@ -911,7 +1023,7 @@ window.addEventListener('load', () => {
     html += "<p>SSID: " + WiFi.SSID() + "</p>";
     html += "<p>RSSI: " + String(WiFi.RSSI()) + " dBm</p>";
   }
-  html += "<p><small>Hold the BOOT button on the board for 3 seconds to forget all saved Wi-Fi networks</small></p>";
+  html += "<p><small>Hold the BOOT button on the board for 3 seconds to forget all saved Wi-Fi networks and the settings PIN</small></p>";
   html += "</div>";
   html += "</div>";
   html += "</body></html>";
@@ -990,6 +1102,7 @@ void handleGetTank() {
 
 // POST /tank  height, gap, count, shape0, length0, width0, diameter0, shape1, ...
 void handleSetTank() {
+  if (!requirePin()) return;
   int count = server.arg("count").toInt();
   if (count < 0 || count > MAX_TANKS) {
     server.send(400, "text/plain; charset=utf-8", "Error: up to " + String(MAX_TANKS) + " tanks");
@@ -1063,8 +1176,34 @@ void sendResult(const String &err) {
   else server.send(200, "text/plain; charset=utf-8", "OK");
 }
 
+// Every request that changes a setting calls this first. If a PIN is set,
+// the request must carry it as "pin"; otherwise this replies 403 and
+// returns false.
+bool requirePin() {
+  String err = checkPin(server.arg("pin"));
+  if (err.length() == 0) return true;
+  server.send(403, "text/plain; charset=utf-8", "Error: " + err);
+  return false;
+}
+
+// GET /lock -> {"pin":true}   (whether the settings are PIN protected)
+void handleGetLock() {
+  server.send(200, "application/json", String("{\"pin\":") + (hasPin() ? "true" : "false") + "}");
+}
+
+// POST /lock/check  pin  -> "OK" if it's right (used by the Unlock button)
+void handleCheckLock() {
+  if (requirePin()) sendResult("");
+}
+
+// POST /lock/set  pin (the current one, if set), new (4-8 digits, empty = remove)
+void handleSetLock() {
+  if (requirePin()) sendResult(setPin(server.arg("new")));
+}
+
 // POST /wifi/save  ssid, password   (adds the network, or changes its password)
 void handleSaveWifi() {
+  if (!requirePin()) return;
   String ssid = server.arg("ssid");
   String err = saveNetwork(ssid, server.arg("password"));
   if (err.length()) {
@@ -1083,16 +1222,19 @@ void handleSaveWifi() {
 
 // POST /wifi/delete  i
 void handleDeleteWifi() {
+  if (!requirePin()) return;
   sendResult(deleteNetwork(argIndex()));
 }
 
 // POST /wifi/move  i, dir (-1 = up, 1 = down)
 void handleMoveWifi() {
+  if (!requirePin()) return;
   sendResult(moveNetwork(argIndex(), server.arg("dir").toInt() < 0 ? -1 : 1));
 }
 
 // POST /wifi/use  i   (switch to this network now)
 void handleUseWifi() {
+  if (!requirePin()) return;
   int i = argIndex();
   if (i < 0 || i >= getNetworkCount()) {
     sendResult("No such network");
@@ -1118,6 +1260,7 @@ void handleGetTime() {
 
 // POST /time  offset (minutes from GMT), summer (1/0)
 void handleSetTime() {
+  if (!requirePin()) return;
   if (!server.hasArg("offset")) {
     sendResult("Choose a time zone");
     return;
@@ -1127,6 +1270,7 @@ void handleSetTime() {
 
 // POST /time/set  now (unix seconds, UTC) -- set the clock from the browser
 void handleSetClock() {
+  if (!requirePin()) return;
   uint32_t t = strtoul(server.arg("now").c_str(), nullptr, 10);
   if (t < 1700000000UL) {
     sendResult("Invalid time");

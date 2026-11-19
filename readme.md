@@ -23,13 +23,13 @@ Other devices can read it through a simple **API**.
 - **Steady readings.** The sensor value is a median of the last 7 readings, so ripples and stray echoes are ignored.
 - **OLED display:** IP address, current reading and a level bar. A button turns the screen on or off.
 - **Status LED:** red / yellow / green by level, or switched on and off by hand from the web page.
-- **Web page** at `http://watertank.local`: live level, 24-hour and 7-day history graph, tank setup, time zone and Wi-Fi settings.
+- **Web page** at `http://watertank.local`: live level, 24-hour and 7-day history graph, and a **Settings** section (tank setup, time zone, Wi-Fi) that can be protected with a PIN.
 - **Up to 5 Wi-Fi networks** in priority order. If one fails, the board moves to the next one, and it switches back to the main network when that returns.
 - **Setup mode:** if no network works, the board opens its own `ESP32-Config` Wi-Fi network for setup.
 - **Time zone** setting (GMT offset + summer time). The clock is set from the internet, or from your phone when there's no internet.
 - **API:** `/api/level` (JSON) and `/api/level.txt` (plain text) for other devices, such as a second ESP driving a big display.
 - **Wireless firmware updates (OTA):** after the first USB upload, you can update the board over Wi-Fi.
-- **Settings survive restarts and updates:** Wi-Fi networks, tank setup, time zone and 7-day history are kept in flash.
+- **Settings survive restarts and updates:** Wi-Fi networks, tank setup, time zone, settings PIN and 7-day history are kept in flash.
 
 ## Hardware
 
@@ -67,7 +67,7 @@ Other devices can read it through a simple **API**.
 | What | ESP32-C3 pin | Wiring | Function |
 |------|--------------|--------|----------|
 | Screen button | GPIO 3 | Button to GND | Short press: OLED on/off |
-| **BOOT** button (on the board) | GPIO 9 | Built-in | Hold 3 s while running: forget all saved Wi-Fi networks |
+| **BOOT** button (on the board) | GPIO 9 | Built-in | Hold 3 s while running: forget all saved Wi-Fi networks and the settings PIN |
 | Status LED (on the board) | GPIO 8 | Built-in | Level colour, see [LED](#oled-led-and-buttons) |
 | Power switch | — | Inline in the 5 V supply | On/off |
 
@@ -129,12 +129,12 @@ The serial monitor shows which networks the board finds, its IP address and the 
 - If it can't join any network, the OLED shows `AP:192.168.4.1`. Then:
   1. Connect your phone to the Wi-Fi network **`ESP32-Config`** (no password).
   2. Open `http://192.168.4.1`.
-  3. Under **Wi-Fi Networks**, press **Scan Networks**, pick your network, enter the password and press **Save network**.
+  3. Under **Settings → Wi-Fi Networks**, press **Scan Networks**, pick your network, enter the password and press **Save network**.
   4. The board connects, and the setup network disappears. Reconnect your phone to your home Wi-Fi and open `http://watertank.local`.
 
 ### 5. Set up the tank
 
-On the web page, under **Tank Setup** (all sizes are *inside* measurements in cm):
+On the web page, open **⚙ Settings** and go to **Tank Setup** (all sizes are *inside* measurements in cm):
 
 ```
   sensor  ─┬─                    Sensor gap  = sensor face → water line when FULL
@@ -155,8 +155,19 @@ Without tank sizes, the level is shown in percent of the height only.
 
 ### 6. Set the time zone
 
-Under **Time**, choose your GMT offset (or press **Use this phone's time zone**). Tick **Summer time** if it applies, then press **Save time zone**.
+Under **Settings → Time**, choose your GMT offset (or press **Use this phone's time zone**). Tick **Summer time** if it applies, then press **Save time zone**.
 The history graph and the device time use this zone.
+
+### 7. Protect the settings with a PIN (optional)
+
+At the bottom of **Settings**, enter a PIN of 4 to 8 digits under **Settings PIN** and press **Save PIN**.
+From then on, the Settings section asks for the PIN before it opens, and the board refuses any setting change without it.
+The live level, history and LED/screen buttons stay open for everyone.
+
+- The browser remembers the PIN until the tab is closed. **Lock settings now** forgets it right away.
+- After 5 wrong PINs, the board refuses all tries for 60 seconds.
+- **Forgot the PIN?** Hold the **BOOT** button for 3 seconds. This removes the PIN and also forgets all saved Wi-Fi networks.
+- The page uses plain HTTP, so the PIN keeps out people on your Wi-Fi who don't know it. Someone recording the network traffic could still read it.
 
 ## Using it
 
@@ -166,10 +177,12 @@ The history graph and the device time use this zone.
 |---------|--------------|
 | Water Tank Level | Live level bar, distance, percent and litres (updates every second) |
 | History | Graph of the last 24 hours (one point per 5 min) or 7 days (one point per hour) |
-| Tank Setup | Tank height, sensor gap and tank shapes/sizes |
 | LED / Screen Control | Turn the LED and OLED on or off |
-| Time | Device time, time zone, summer time |
-| Wi-Fi Networks | Saved networks: reorder, connect, delete, add |
+| **⚙ Settings** (fold-out, PIN if set) | |
+| → Tank Setup | Tank height, sensor gap and tank shapes/sizes |
+| → Time | Device time, time zone, summer time |
+| → Wi-Fi Networks | Saved networks: reorder, connect, delete, add |
+| → Settings PIN | Set, change or remove the PIN |
 
 The history starts once the clock is set. The 7-day history is kept in flash and survives restarts; the 24-hour history is lost on restart.
 
@@ -185,7 +198,7 @@ The history starts once the clock is set. The 7-day history is kept in flash and
   - **Connect** switches to a network now.
   - **✕** deletes it.
   - Saving a name that is already in the list changes its password.
-- Holding the **BOOT** button for 3 seconds forgets all networks. The board then restarts with the default from `secrets.h`.
+- Holding the **BOOT** button for 3 seconds forgets all networks (and the settings PIN). The board then restarts with the default from `secrets.h`.
 
 The timings are constants near the top of `main/user-wifi.cpp` (`PRIORITY_CHECK_INTERVAL` and the others).
 
@@ -205,7 +218,7 @@ The LED buttons on the web page switch the LED to manual on/off.
 
 **Buttons:**
 - **Screen button (GPIO 3):** OLED on/off.
-- **BOOT:** hold 3 s to forget all Wi-Fi networks.
+- **BOOT:** hold 3 s to forget all Wi-Fi networks and the settings PIN.
 
 ## API for other devices
 
@@ -257,12 +270,14 @@ Both endpoints send `Access-Control-Allow-Origin: *`, so a web page on another d
 <summary>Other endpoints</summary>
 
 Used by the web page. They may change between versions; use `/api/level` for your own projects.
+When a PIN is set, every `POST` that changes a setting needs a `pin` field, otherwise it gets `403`.
 
 | Endpoint | Description |
 |----------|-------------|
 | `GET /data` | Live reading for the web page |
 | `GET /status` | LED, screen, Wi-Fi mode, IP, SSID, signal, uptime |
 | `GET /history` | 24 h and 7 day history |
+| `GET /lock`, `POST /lock/check`, `POST /lock/set` | Settings PIN: is one set, check it, set/remove it |
 | `GET/POST /tank` | Tank setup |
 | `GET/POST /time`, `POST /time/set` | Time zone, set the clock by hand |
 | `GET /wifi`, `POST /wifi/save`, `/wifi/delete`, `/wifi/move`, `/wifi/use` | Saved Wi-Fi networks |
@@ -301,6 +316,7 @@ ESP32-C3-mini-water-level-sensor/
     ├── user-history.h/.cpp      24 h / 7 day history
     ├── user-clock.h/.cpp        Clock (NTP) and time zone
     ├── user-networks.h/.cpp     Saved Wi-Fi networks list
+    ├── user-lock.h/.cpp         Optional PIN for the settings
     ├── user-wifi.h/.cpp         Wi-Fi connection manager, web page, API, mDNS, OTA
     ├── user-screen.h/.cpp       OLED display and screen button
     ├── user-led.h/.cpp          Status LED
@@ -314,6 +330,7 @@ Settings stored in flash (they survive restarts and firmware updates):
 | `wifi`  | Saved Wi-Fi networks | BOOT button (hold 3 s) |
 | `tank`  | Tank height, sensor gap, tank shapes and sizes | — |
 | `clock` | Time zone and summer time | — |
+| `lock`  | Settings PIN | BOOT button (hold 3 s) |
 | `hist`  | 7-day history | — |
 
 ## Troubleshooting

@@ -19,6 +19,7 @@ Each feature is a `user-<name>.h/.cpp` pair with an `init<Name>()` called from `
 | `user-history.*` | 24 h (5 min, RAM) and 7 day (1 h, flash) ring buffers, NTP timestamps. |
 | `user-clock.*` | NTP sync, time zone (GMT offset + summer time) via POSIX `TZ`, manual clock set. Timestamps stay UTC. |
 | `user-networks.*` | Saved Wi-Fi list (max 5, priority order) in flash; default from `secrets.h`. |
+| `user-lock.*` | Optional settings PIN (4-8 digits) in flash, wrong-try lockout. |
 | `user-wifi.*` | Non-blocking connection manager (scan → try saved networks in order → setup AP; 10 min check for a higher network), reset button, `WebServer` routes, the whole HTML page, mDNS, OTA, NTP. |
 | `user-screen.*` | U8g2 72x40 OLED, 3 rows (IP / reading / bar), screen toggle button. |
 | `user-led.*` | Onboard LED, manual/auto modes. |
@@ -31,7 +32,7 @@ Keep module internals in an anonymous `namespace {}` (as in `user-tank.cpp` and 
 
 ## Flash storage (`Preferences`)
 
-Each module has its own namespace: `"wifi"` (saved networks, owned by `user-networks`; cleared by the reset button), `"tank"`, `"hist"`, `"clock"`. Put new settings in their own namespace so a Wi-Fi reset doesn't wipe them.
+Each module has its own namespace: `"wifi"` (saved networks, owned by `user-networks`; cleared by the reset button), `"tank"`, `"hist"`, `"clock"`, `"lock"` (settings PIN; also cleared by the reset button). Put new settings in their own namespace so a Wi-Fi reset doesn't wipe them.
 
 - Write rarely. Flash wears out, which is why history saves only once per hour. Never write from `loop()` on every reading.
 - When changing what is stored, migrate old data on first boot the way `initTank()` migrates the old `"wifi"` calibration keys.
@@ -40,6 +41,8 @@ Each module has its own namespace: `"wifi"` (saved networks, owned by `user-netw
 ## Web page and endpoints (`user-wifi.cpp`)
 
 - The page is built in `handleRoot()` as `html += "..."` string lines (inline CSS + JS, no external files or CDNs, because the device may have no internet in AP mode).
+- Page order: level, history, LED/screen, then a fold-out **⚙ Settings** (`appendSettingsStart()` … `appendSettingsEnd()`) holding tank setup, time, Wi-Fi and the PIN controls. New settings go inside it.
+- **Every handler that changes a setting starts with `if (!requirePin()) return;`**. In the page JS, send settings with the shared `post(url, body)`, which adds the PIN. Plain `fetch` POSTs would fail once a PIN is set.
 - Register routes in `initWiFi()` next to the others. JSON is built by hand with `String`; keep keys short and use `-1` for "not available", as `/data` does.
 - `/api/level` and `/api/level.txt` are read by other devices (a display ESP). Never rename or remove their fields; only add new ones. Keep the readme's API section in sync.
 - Validate POST input in the owning module (like `setTankSetup()` returns an error string) and reply `400` with `"Error: ..."` on failure.

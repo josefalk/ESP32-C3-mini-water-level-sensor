@@ -9,6 +9,7 @@
 #include "user-history.h"  // 24 h / 7 day level history for the web graph
 #include "user-tank.h"     // tank sizes -> litres and percent
 #include "user-clock.h"    // real time + time zone
+#include "user-lock.h"     // optional PIN for the settings
 #include "A02YYUW.h"       // Ultrasonic distance sensor driver
 
 HardwareSerial mySerial(1);           // UART1 for the sensor
@@ -49,6 +50,7 @@ void setup() {
   initScreen();
   initTank();
   initClock();
+  initLock();
   initHistory();
   initWiFi();               // Wi-Fi + web server + mDNS + OTA
 

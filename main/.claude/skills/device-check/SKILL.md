@@ -23,9 +23,14 @@ Use `curl -s --max-time 5`. The web server is single-threaded, so send requests 
 | `/history` | `{"now","day":[[unix,pct],...],"week":[...]}`. Empty until NTP has synced (needs internet). |
 | `/scan` | Nearby Wi-Fi networks. Slow (a few seconds). Returns `"busy":true` while the device is itself scanning or connecting. |
 | `/time` (GET) | `{"now" unix UTC,"valid","offset" min,"summer","tz" total min,"local":"Wed 18 Nov 23:11"}` |
+| `/lock` (GET) | `{"pin":true/false}`: whether the settings are PIN protected. |
 | `/wifi` (GET) | `{"mode":"STA"/"AP"/"CONNECTING","current","checkMins","nets":[ssid,...]}`. Saved networks in priority order (#1 = main). Passwords are never returned. |
 
 ## Endpoints that change the device: ask first
+
+**Settings PIN:** when `/lock` says `"pin":true`, every POST below needs a `pin` field (ask the user for it; never guess). Without it the reply is `403 Error: Wrong PIN`. After 5 wrong tries, all tries are refused for 60 s, which locks the user out too, so don't retry wrong PINs.
+- `POST /lock/check` (`pin`) answers `OK` if the PIN is right.
+- `POST /lock/set` (`pin` = the current PIN, `new` = 4-8 digits, empty = remove) sets or removes it.
 
 - `POST /tank` (`height`, `gap`, `count`, `shape0..`, `length0..`, `width0..`, `diameter0..`) **overwrites the saved tank setup in flash.**
 - `POST /time` (`offset` minutes from GMT, `summer` 1/0) saves the time zone; `POST /time/set` (`now` unix) sets the clock by hand.
