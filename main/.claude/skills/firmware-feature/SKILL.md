@@ -42,7 +42,7 @@ Each module has its own namespace: `"wifi"` (saved networks, owned by `user-netw
 
 - The page is built in `handleRoot()` as `html += "..."` string lines (inline CSS + JS, no external files or CDNs, because the device may have no internet in AP mode).
 - Colours are CSS variables (`--text`, `--muted`, `--faint`, `--border`, `--card`, …) with a dark set; use `var(--…)` for any grey/white, never hard-coded, or it breaks dark mode. Accent colours (green/red/blue/orange) are fine as-is.
-- Page order: level, history, LED/screen, then a fold-out **⚙ Settings** (`appendSettingsStart()` … `appendSettingsEnd()`) holding tank setup, time, Wi-Fi and the PIN controls. New settings go inside it.
+- Page order: level, history, LED/screen, then a fold-out **⚙ Settings** (`appendSettingsStart()` … `appendSettingsEnd()`) holding tank setup (incl. valves), time, Wi-Fi and the PIN controls. Rarely used controls belong in Settings, not on the main page. New settings go inside it.
 - **Every handler that changes a setting starts with `if (!requirePin()) return;`**. In the page JS, send settings with the shared `post(url, body)`, which adds the PIN. Plain `fetch` POSTs would fail once a PIN is set.
 - Register routes in `initWiFi()` next to the others. JSON is built by hand with `String`; keep keys short and use `-1` for "not available", as `/data` does.
 - `/api/level` and `/api/level.txt` are read by other devices (a display ESP). Never rename or remove their fields; only add new ones. Keep the readme's API section in sync.

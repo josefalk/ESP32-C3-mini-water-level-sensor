@@ -165,7 +165,7 @@ Without tank sizes, the level is shown in percent of the height only.
 
 #### Valves (2 or more tanks)
 
-If each tank has a valve, tell the board when you close one. Under the level on the main page, each tank has a **Close valve / Open valve** button. It asks for the settings PIN if Settings is locked.
+If each tank has a valve, tell the board when you close one. Open **⚙ Settings → Tank Setup → Valves**: each tank has a **Close valve / Open valve** button. It takes effect right away (no Save needed). While a tank is closed, the litres box on the main page says so.
 
 - **Another tank's valve closed:** that tank is left out of the litres, capacity and percent. The sensor can't see its water any more.
 - **The sensor tank's valve closed:** only the sensor tank is measured. The other tanks are left out.
@@ -195,11 +195,11 @@ The live level, history and LED/screen buttons stay open for everyone.
 
 | Section | What it does |
 |---------|--------------|
-| Water Tank Level | Live level bar, distance, percent and litres (updates every second); valve buttons when there are 2+ tanks |
+| Water Tank Level | Live level bar, distance, percent and litres (updates every second) |
 | History | Graph of the last 24 hours (one point per 5 min), 7 days (per hour), 30 days (per 4 hours) or 1 year (per day) |
 | LED / Screen Control | Turn the LED and OLED on or off |
 | **⚙ Settings** (fold-out, PIN if set) | |
-| → Tank Setup | Tank height, sensor gap and tank shapes/sizes |
+| → Tank Setup | Tank height, sensor gap, tank shapes/sizes, which tank holds the sensor, valves |
 | → Time | Device time, time zone, summer time |
 | → Wi-Fi Networks | Saved networks: reorder, connect, delete, add |
 | → Settings PIN | Set, change or remove the PIN |

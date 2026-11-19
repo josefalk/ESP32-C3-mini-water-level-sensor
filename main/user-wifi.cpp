@@ -636,6 +636,7 @@ void appendTankSection(String &html) {
   The sensor can sit in any one of them; choose which, so closing a valve is counted right.</p>
 <button class='save-calibration' onclick='saveTank()'>Save Tank Setup</button>
 <p id='tankSummary' style='color:var(--text);font-size:14px'></p>
+<div id='valveBox'></div>
 )HTML";
 }
 
@@ -880,7 +881,6 @@ function post(url, body){
     html += "<div class='sensor-value'><span id='litres'>--</span> L <small style='font-size:14px;color:var(--muted)'>of <span id='capacity'>--</span> L</small></div>";
     html += "</div>";
     html += "</div>";
-    html += "<div id='valveBox'></div>";   // valve switches, when there are 2+ tanks
     html += "</div>";
 
     // History graph (drawn by the script below)
@@ -965,12 +965,14 @@ function loadValves(){ fetch('/tank').then(r=>r.json()).then(renderValves); }
 function renderValves(d){
   const box = document.getElementById('valveBox');
   if (d.tanks.length < 2){ box.innerHTML = ''; return; }
-  let h = "<div class='sensor-label' style='margin:15px 0 5px'>Valves: a closed tank is not counted</div>";
+  let h = "<h3 style='margin-top:25px'>Valves</h3><p style='color:var(--muted);font-size:13px'>" +
+    "If you shut a tank off with its valve, close it here too. A closed tank is left out of the litres " +
+    "and percent until you open it again. This takes effect right away.</p>";
   d.tanks.forEach((t, i) => {
     const note = t.measured ? 'valve open, counted'
       : !t.open ? 'valve closed' + (t.held >= 0 ? `, holds about ${t.held} L` : '')
       : 'not measured: the sensor tank is closed';
-    h += `<div class='network-item' style='display:flex;align-items:center;gap:8px;cursor:default;background:var(--card)'>
+    h += `<div class='network-item' style='display:flex;align-items:center;gap:8px;cursor:default'>
       <div style='flex:1'><b>Tank ${i+1}</b>${i == d.sensor ? ' <small>(sensor)</small>' : ''}<br>
         <small style='color:${t.measured ? '#4CAF50' : 'var(--faint)'}'>${note}</small></div>
       <button class='mini ${t.open ? 'off' : 'on'}' onclick='setValve(${i},${t.open ? 0 : 1})'>
