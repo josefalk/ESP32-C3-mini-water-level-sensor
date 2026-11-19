@@ -33,7 +33,7 @@ Run every command from the project root (the folder containing `platformio.ini`)
 
 ## Gotchas
 
-- The OTA password comes from `[ota] password` in `platformio.ini`. It's used both as a build flag (`OTA_PASSWORD`) and as an upload flag, so if it changes, the board needs one USB flash before OTA works with the new password.
+- The OTA password comes from `[ota] password` in `secrets.ini` (git-ignored, loaded through `extra_configs`; `platformio.ini` only holds the public default `watertank-ota`). It's used both as a build flag (`OTA_PASSWORD`) and as an upload flag, so if it changes, the board needs one USB flash before OTA works with the new password. Never print it or commit `secrets.ini`.
 - `ARDUINO_USB_CDC_ON_BOOT=1` is required, or the serial output won't appear over the C3's native USB.
 - GPIO18/19 are the USB D-/D+ pins. Code that uses them as GPIO breaks USB enumeration and makes USB upload impossible (recover by holding BOOT while plugging in).
 - `.pio/` is build output and is git-ignored. For a clean build use `pio run -t clean`.

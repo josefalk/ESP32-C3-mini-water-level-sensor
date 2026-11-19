@@ -100,7 +100,7 @@ Other devices can read it through a simple **API**.
 PlatformIO downloads the ESP32 platform and the U8g2 display library by itself.
 `platformio.ini` also turns on **USB CDC On Boot**, which you had to switch on by hand in the Arduino IDE.
 
-### 2. Set your default Wi-Fi (optional)
+### 2. Set your Wi-Fi and OTA password
 
 Copy `main/secrets.example.h` to `main/secrets.h` and enter your home network:
 
@@ -111,6 +111,15 @@ Copy `main/secrets.example.h` to `main/secrets.h` and enter your home network:
 
 `secrets.h` is in `.gitignore`, so your password never goes to GitHub.
 Without this file the board starts in setup mode, and you add the network from your phone (see below).
+
+Also copy `main/secrets.example.ini` to `main/secrets.ini` and set your own **OTA password** (used for updates over Wi-Fi):
+
+```ini
+[ota]
+password = something-only-you-know
+```
+
+`secrets.ini` is in `.gitignore` too. Without it, the public default password `watertank-ota` is used, and anyone on your Wi-Fi who reads this readme could upload firmware to your board.
 
 ### 3. Upload over USB
 
@@ -263,7 +272,7 @@ Example for the display ESP (Arduino):
 
 void readTank() {
   HTTPClient http;
-  http.begin("http://192.168.88.27/api/level.txt");   // the water tank board's IP
+  http.begin("http://192.168.1.50/api/level.txt");    // your water tank board's IP
   http.setTimeout(3000);
   if (http.GET() == 200) {
     float percent; int litres;
@@ -309,7 +318,7 @@ pio run -e ota -t upload
 
 Or use **ota → Upload** in the PlatformIO sidebar.
 
-- The OTA password is set in `[ota] password` in `platformio.ini`. If you change it, do one USB upload first.
+- The OTA password is set in `main/secrets.ini` (see *Getting started*, step 2). If you change it, do one USB upload first, because the board still expects the old password over Wi-Fi.
 - **Windows:** the firewall must allow incoming TCP port 18180. This is a one-time setup, in PowerShell **run as administrator**:
   ```
   New-NetFirewallRule -DisplayName "ESP32 OTA" -Direction Inbound -Protocol TCP -LocalPort 18180 -Action Allow -Profile Private
@@ -323,6 +332,7 @@ ESP32-C3-mini-water-level-sensor/
 └── main/                        The firmware (open this folder in VS Code)
     ├── platformio.ini           Build settings, USB and OTA upload
     ├── secrets.example.h        Copy to secrets.h: default Wi-Fi network
+    ├── secrets.example.ini      Copy to secrets.ini: OTA password
     ├── main.cpp                 setup()/loop(): read sensor → smooth → screen, LED, web, history
     ├── A02YYUW.h/.cpp           Ultrasonic sensor driver (UART)
     ├── user-tank.h/.cpp         Tank shapes and sizes → depth, litres, percent
