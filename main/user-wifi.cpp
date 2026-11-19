@@ -666,7 +666,7 @@ void appendSettingsEnd(String &html) {
 </details>
 <script>
 let hasPin = false;
-function keepPin(p){ PIN = p; try { sessionStorage.setItem('pin', p); } catch(e) {} }
+function keepPin(p){ PIN = p; }
 function showLock(){
   const locked = hasPin && !PIN;
   document.getElementById('lockBox').style.display = locked ? '' : 'none';
@@ -680,12 +680,16 @@ function showLock(){
 function loadLock(){
   fetch('/lock').then(r=>r.json()).then(d=>{
     hasPin = d.pin;
-    if (!hasPin) keepPin('');
-    if (hasPin && PIN){             // remembered from earlier: check it is still right
-      post('/lock/check', '').then(m => { if (m != 'OK') keepPin(''); showLock(); });
-    } else showLock();
+    keepPin('');
+    showLock();
   });
 }
+// Folding Settings closed locks them again
+window.addEventListener('load', () => {
+  document.getElementById('settingsBox').addEventListener('toggle', e => {
+    if (!e.target.open && hasPin){ keepPin(''); showLock(); }
+  });
+});
 function unlock(){
   const p = document.getElementById('pinIn').value;
   if (!p) return;
@@ -702,9 +706,9 @@ function savePin(){
   if (!/^[0-9]{4,8}$/.test(p)){ alert('The PIN must be 4 to 8 digits'); return; }
   post('/lock/set', 'new=' + p).then(m => {
     if (m != 'OK'){ alert(m); return; }
-    hasPin = true; keepPin(p);
+    hasPin = true; keepPin('');     // lock now: unlocking checks you know the new PIN
     document.getElementById('newPin').value = '';
-    alert('PIN saved. Remember it: it is needed to change the settings.');
+    alert('PIN saved. The settings are locked now: enter the PIN to open them again.');
     showLock();
   });
 }
@@ -770,8 +774,7 @@ void handleRoot() {
   // Send a setting to the device. The settings PIN (if one is set and the
   // user has unlocked the Settings) goes along with every request.
   html += R"HTML(
-let PIN = '';
-try { PIN = sessionStorage.getItem('pin') || ''; } catch(e) {}
+let PIN = '';   // only kept while the page is open; a refresh asks again
 function post(url, body){
   body = (body ? body + '&' : '') + 'pin=' + encodeURIComponent(PIN);
   return fetch(url, {method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body})

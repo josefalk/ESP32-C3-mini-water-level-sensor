@@ -164,7 +164,7 @@ At the bottom of **Settings**, enter a PIN of 4 to 8 digits under **Settings PIN
 From then on, the Settings section asks for the PIN before it opens, and the board refuses any setting change without it.
 The live level, history and LED/screen buttons stay open for everyone.
 
-- The browser remembers the PIN until the tab is closed. **Lock settings now** forgets it right away.
+- The page asks for the PIN again after a refresh, after saving a new PIN, and when you fold Settings closed. **Lock settings now** also locks them right away.
 - After 5 wrong PINs, the board refuses all tries for 60 seconds.
 - **Forgot the PIN?** Hold the **BOOT** button for 3 seconds. This removes the PIN and also forgets all saved Wi-Fi networks.
 - The page uses plain HTTP, so the PIN keeps out people on your Wi-Fi who don't know it. Someone recording the network traffic could still read it.
