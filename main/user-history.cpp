@@ -59,45 +59,71 @@ struct Series {
   }
 };
 
-Series<288> day(300);    // 24 h @ 5 min
-Series<168> week(3600);  // 7 days @ 1 h
+Series<288> day(300);       // 24 h @ 5 min      (RAM only)
+Series<168> week(3600);     // 7 days @ 1 h      (flash, saved every hour)
+Series<180> month(14400);   // 30 days @ 4 h     (flash, saved every 4 hours)
+Series<365> year(86400);    // 365 days @ 1 day  (flash, saved once a day)
 Preferences histPrefs;
 
 bool clockValid(uint32_t now) { return now > 1700000000UL; }  // NTP has synced
 
-void saveWeek() {
-  static Sample ordered[168];
-  for (int i = 0; i < week.count; i++) ordered[i] = week.at(i);
-  histPrefs.putBytes("week", ordered, week.count * sizeof(Sample));
+Sample ordered[365];        // work space for saving/loading (oldest first)
+
+template <int N>
+void saveSeries(const char *key, const Series<N> &s) {
+  for (int i = 0; i < s.count; i++) ordered[i] = s.at(i);
+  histPrefs.putBytes(key, ordered, s.count * sizeof(Sample));
+}
+
+// Returns false if nothing was saved under this key yet
+template <int N>
+bool loadSeries(const char *key, Series<N> &s) {
+  if (!histPrefs.isKey(key)) return false;
+  size_t len = histPrefs.getBytesLength(key);
+  if (len == 0 || len > N * sizeof(Sample) || len % sizeof(Sample)) return false;
+  histPrefs.getBytes(key, ordered, len);
+  for (size_t i = 0; i < len / sizeof(Sample); i++)
+    s.push(ordered[i].t, ordered[i].p10 / 10.0);
+  return true;
+}
+
+// First start with this version: build the 30 day / 1 year history from
+// the hourly points that already exist, so they don't start empty.
+template <int N>
+void fillFromWeek(Series<N> &s) {
+  for (int i = 0; i < week.count; i++) s.add(week.at(i).t, week.at(i).p10 / 10.0);
 }
 
 } // namespace
 
 void initHistory() {
   histPrefs.begin("hist", false);
-  static Sample ordered[168];
-  size_t len = histPrefs.getBytesLength("week");
-  if (len > 0 && len <= sizeof(ordered) && len % sizeof(Sample) == 0) {
-    histPrefs.getBytes("week", ordered, len);
-    for (size_t i = 0; i < len / sizeof(Sample); i++)
-      week.push(ordered[i].t, ordered[i].p10 / 10.0);
-    Serial.printf("History: loaded %d hourly points\n", week.count);
-  }
+  loadSeries("week", week);
+  if (!loadSeries("month", month)) fillFromWeek(month);
+  if (!loadSeries("year", year))   fillFromWeek(year);
+  Serial.printf("History: %d hourly, %d 4-hour, %d daily points\n", week.count, month.count, year.count);
 }
 
 void addHistorySample(float percent) {
   uint32_t now = (uint32_t)time(nullptr);
   if (!clockValid(now)) return;
   day.add(now, percent);
-  if (week.add(now, percent)) saveWeek();   // flash write once per hour
+  // Flash is written only when a time slot is finished
+  if (week.add(now, percent))  saveSeries("week", week);     // once per hour
+  if (month.add(now, percent)) saveSeries("month", month);   // every 4 hours
+  if (year.add(now, percent))  saveSeries("year", year);     // once a day
 }
 
-String getHistoryJson() {
+// range = "day", "week", "month" or "year": only that one.
+// Empty: day + week (what older versions of the page expect).
+String getHistoryJson(const String &range) {
   String out;
-  out.reserve(8000);
+  out.reserve(range.length() ? 7000 : 8000);
   out += "{\"now\":"; out += (uint32_t)time(nullptr);
-  out += ",\"day\":";  day.toJson(out);
-  out += ",\"week\":"; week.toJson(out);
+  if (range == "" || range == "day")  { out += ",\"day\":";  day.toJson(out); }
+  if (range == "" || range == "week") { out += ",\"week\":"; week.toJson(out); }
+  if (range == "month") { out += ",\"month\":"; month.toJson(out); }
+  if (range == "year")  { out += ",\"year\":";  year.toJson(out); }
   out += '}';
   return out;
 }

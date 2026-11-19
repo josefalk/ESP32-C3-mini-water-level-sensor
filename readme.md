@@ -23,13 +23,13 @@ Other devices can read it through a simple **API**.
 - **Steady readings.** The sensor value is a median of the last 7 readings, so ripples and stray echoes are ignored.
 - **OLED display:** IP address, current reading and a level bar. A button turns the screen on or off.
 - **Status LED:** red / yellow / green by level, or switched on and off by hand from the web page.
-- **Web page** at `http://watertank.local`: live level, 24-hour and 7-day history graph, and a **Settings** section (tank setup, time zone, Wi-Fi) that can be protected with a PIN. Light and dark mode: follows the phone/PC by default, or press the ◐ button at the top to choose.
+- **Web page** at `http://watertank.local`: live level, history graph (24 hours, 7 days, 30 days, 1 year), and a **Settings** section (tank setup, time zone, Wi-Fi) that can be protected with a PIN. Light and dark mode: follows the phone/PC by default, or press the ◐ button at the top to choose.
 - **Up to 5 Wi-Fi networks** in priority order. If one fails, the board moves to the next one, and it switches back to the main network when that returns.
 - **Setup mode:** if no network works, the board opens its own `ESP32-Config` Wi-Fi network for setup.
 - **Time zone** setting (GMT offset + summer time). The clock is set from the internet, or from your phone when there's no internet.
 - **API:** `/api/level` (JSON) and `/api/level.txt` (plain text) for other devices, such as a second ESP driving a big display.
 - **Wireless firmware updates (OTA):** after the first USB upload, you can update the board over Wi-Fi.
-- **Settings survive restarts and updates:** Wi-Fi networks, tank setup, time zone, settings PIN and 7-day history are kept in flash.
+- **Settings survive restarts and updates:** Wi-Fi networks, tank setup, time zone, settings PIN and the 7-day, 30-day and 1-year history are kept in flash.
 
 ## Hardware
 
@@ -196,7 +196,7 @@ The live level, history and LED/screen buttons stay open for everyone.
 | Section | What it does |
 |---------|--------------|
 | Water Tank Level | Live level bar, distance, percent and litres (updates every second); valve buttons when there are 2+ tanks |
-| History | Graph of the last 24 hours (one point per 5 min) or 7 days (one point per hour) |
+| History | Graph of the last 24 hours (one point per 5 min), 7 days (per hour), 30 days (per 4 hours) or 1 year (per day) |
 | LED / Screen Control | Turn the LED and OLED on or off |
 | **⚙ Settings** (fold-out, PIN if set) | |
 | → Tank Setup | Tank height, sensor gap and tank shapes/sizes |
@@ -204,7 +204,7 @@ The live level, history and LED/screen buttons stay open for everyone.
 | → Wi-Fi Networks | Saved networks: reorder, connect, delete, add |
 | → Settings PIN | Set, change or remove the PIN |
 
-The history starts once the clock is set. The 7-day history is kept in flash and survives restarts; the 24-hour history is lost on restart.
+The history starts once the clock is set. The 7-day, 30-day and 1-year histories are kept in flash and survive restarts; the 24-hour history is lost on restart. Each point is the average level over its time slot.
 
 ### Wi-Fi networks
 
@@ -297,7 +297,7 @@ When a PIN is set, every `POST` that changes a setting needs a `pin` field, othe
 |----------|-------------|
 | `GET /data` | Live reading for the web page |
 | `GET /status` | LED, screen, Wi-Fi mode, IP, SSID, signal, uptime |
-| `GET /history` | 24 h and 7 day history |
+| `GET /history?range=day\|week\|month\|year` | History for one range (without `range`: 24 h + 7 days) |
 | `GET /lock`, `POST /lock/check`, `POST /lock/set` | Settings PIN: is one set, check it, set/remove it |
 | `GET/POST /tank` | Tank setup (`GET` also shows the sensor tank and each valve) |
 | `POST /tank/valve` | Open (`open=1`) or close (`open=0`) the valve of tank `i` (0 = tank 1) |
@@ -354,7 +354,7 @@ Settings stored in flash (they survive restarts and firmware updates):
 | `tank`  | Tank height, sensor gap, tank shapes and sizes, sensor tank, valves | — |
 | `clock` | Time zone and summer time | — |
 | `lock`  | Settings PIN | BOOT button (hold 3 s) |
-| `hist`  | 7-day history | — |
+| `hist`  | 7-day, 30-day and 1-year history | — |
 
 ## Troubleshooting
 

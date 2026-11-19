@@ -20,7 +20,7 @@ Use `curl -s --max-time 5`. The web server is single-threaded, so send requests 
 | `/data` | `{"valid","distance" cm,"depth" cm,"percent","litres","capacity","tanks"}`. `litres`/`capacity` are `-1` when no tank sizes are set. `valid:false` means the sensor stopped answering. |
 | `/status` | `{"led","ledMode","screen","mode":"AP"/"STA"/"CONNECTING","ip","ssid","rssi","uptime" s, "heapFree","heapMinFree","heapMaxBlock","heapTotal" bytes, "appSize","appSpace" bytes, "nvsUsed","nvsTotal" entries, "chipTemp" °C, "resetReason"}`. Baseline (Nov 2026): heapFree ~195 KB, heapMinFree ~160 KB after page loads, NVS 187/630. resetReason 4 = crash, 6/7 = watchdog, 9 = brownout (power supply). |
 | `/tank` (GET) | `{"height","gap","capacity","sensor" (tank index),"tanks":[{"shape":1-3,"length","width","diameter","open","measured","held" L}]}`. Shapes: 1 = box, 2 = upright cylinder, 3 = horizontal cylinder. `open` = valve open; `measured` = counted in litres now; `held` = litres a closed tank held when closed (-1 unknown). |
-| `/history` | `{"now","day":[[unix,pct],...],"week":[...]}`. Empty until NTP has synced (needs internet). |
+| `/history` | `{"now","day":[[unix,pct],...],"week":[...]}`. `?range=day/week/month/year` returns only that one (month = 4 h points, year = daily). Empty until NTP has synced (needs internet). |
 | `/scan` | Nearby Wi-Fi networks. Slow (a few seconds). Returns `"busy":true` while the device is itself scanning or connecting. |
 | `/time` (GET) | `{"now" unix UTC,"valid","offset" min,"summer","tz" total min,"local":"Wed 18 Nov 23:11"}` |
 | `/lock` (GET) | `{"pin":true/false}`: whether the settings are PIN protected. |

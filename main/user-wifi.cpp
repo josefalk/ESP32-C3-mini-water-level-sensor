@@ -184,7 +184,7 @@ void initWiFi() {
   server.on("/lock", HTTP_GET, handleGetLock);
   server.on("/lock/check", HTTP_POST, handleCheckLock);
   server.on("/lock/set", HTTP_POST, handleSetLock);
-  server.on("/history", []() { server.send(200, "application/json", getHistoryJson()); });
+  server.on("/history", []() { server.send(200, "application/json", getHistoryJson(server.arg("range"))); });
   server.onNotFound(handleNotFound);
 
   server.begin();
@@ -889,6 +889,8 @@ function post(url, body){
 <div>
   <button id='rDay' class='range on' onclick="setRange('day')">24 hours</button>
   <button id='rWeek' class='range' onclick="setRange('week')">7 days</button>
+  <button id='rMonth' class='range' onclick="setRange('month')">30 days</button>
+  <button id='rYear' class='range' onclick="setRange('year')">1 year</button>
 </div>
 <div id='chartWrap' style='margin-top:10px'><svg id='chart' viewBox='0 0 560 210' style='width:100%;height:auto'></svg></div>
 <p id='chartNote' style='color:var(--muted);font-size:13px'></p>
@@ -1019,21 +1021,29 @@ function updateLitres(){
   });
 }
 // ---- History chart ----
+// span = seconds shown, step = one point per ..., note = when the first point appears
+const RANGES = {
+  day:   {span: 86400,     step: 300,   btn: 'rDay',   note: '5 minutes'},
+  week:  {span: 7*86400,   step: 3600,  btn: 'rWeek',  note: '1 hour'},
+  month: {span: 30*86400,  step: 14400, btn: 'rMonth', note: '4 hours'},
+  year:  {span: 365*86400, step: 86400, btn: 'rYear',  note: '1 day'},
+};
 let range = 'day', hist = null;
 function setRange(r){
   range = r;
-  document.getElementById('rDay').className = 'range' + (r=='day' ? ' on' : '');
-  document.getElementById('rWeek').className = 'range' + (r=='week' ? ' on' : '');
-  drawChart();
+  for (const k in RANGES) document.getElementById(RANGES[k].btn).className = 'range' + (k == r ? ' on' : '');
+  hist = null;
+  document.getElementById('chartNote').textContent = 'Loading...';
+  loadHistory();
 }
 function loadHistory(){
-  fetch('/history').then(r=>r.json()).then(d=>{ hist = d; drawChart(); });
+  const r = range;
+  fetch('/history?range=' + r).then(r=>r.json()).then(d=>{ if (r == range){ hist = d; drawChart(); } });
 }
 function drawChart(){
-  if (!hist) return;
+  if (!hist || !hist[range]) return;
   const W=560, H=210, L=38, R=10, T=10, B=26;
-  const span = range=='day' ? 86400 : 7*86400;
-  const step = range=='day' ? 300 : 3600;
+  const span = RANGES[range].span, step = RANGES[range].step;
   const pts = hist[range];
   const now = hist.now, t0 = now - span;
   const x = t => L + (t - t0) / span * (W - L - R);
@@ -1044,18 +1054,28 @@ function drawChart(){
     s += `<line x1='${L}' x2='${W-R}' y1='${y(p)}' y2='${y(p)}' style='stroke:var(--grid)'/>`;
     s += `<text x='${L-6}' y='${y(p)+4}' text-anchor='end' font-size='11' style='fill:var(--faint)'>${p}%</text>`;
   }
-  // time labels: every 6 h (24 h view) or every day (7 day view)
-  const tick = range=='day' ? 6*3600 : 86400;
-  // Use the device's time zone (Time section); the browser's until it's loaded
+  // Time labels, in the device's time zone (Time section; the browser's until loaded).
+  // Dates are shifted by the zone and read with getUTC..., so they show device local time.
   const tz = (tzMin != null ? tzMin : -new Date().getTimezoneOffset()) * 60;
-  const off = -tz;                                    // align ticks to local midnight
-  for (let t = Math.ceil((t0 - off) / tick) * tick + off; t <= now; t += tick){
-    const d = new Date((t + tz) * 1000);              // read with getUTC... = device local time
-    const lbl = range=='day' ? d.getUTCHours().toString().padStart(2,'0') + ':00'
-                             : d.toLocaleDateString(undefined, {weekday:'short', timeZone:'UTC'});
+  const ticks = [];
+  if (range == 'year'){                               // the 1st of every month
+    const d = new Date((t0 + tz) * 1000);
+    let m = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1));
+    for (; m / 1000 - tz <= now; m = new Date(Date.UTC(m.getUTCFullYear(), m.getUTCMonth() + 1, 1)))
+      ticks.push(m / 1000 - tz);
+  } else {                                            // every 6 h / 1 day / 5 days, from local midnight
+    const tick = {day: 6*3600, week: 86400, month: 5*86400}[range];
+    for (let t = Math.ceil((t0 + tz) / tick) * tick - tz; t <= now; t += tick) ticks.push(t);
+  }
+  ticks.forEach(t => {
+    const d = new Date((t + tz) * 1000);
+    const lbl = range == 'day'  ? d.getUTCHours().toString().padStart(2,'0') + ':00'
+              : range == 'week' ? d.toLocaleDateString(undefined, {weekday:'short', timeZone:'UTC'})
+              : range == 'month'? d.toLocaleDateString(undefined, {day:'numeric', month:'short', timeZone:'UTC'})
+                                : d.toLocaleDateString(undefined, {month:'short', timeZone:'UTC'});
     s += `<line x1='${x(t)}' x2='${x(t)}' y1='${T}' y2='${H-B}' style='stroke:var(--grid2)'/>`;
     s += `<text x='${x(t)}' y='${H-8}' text-anchor='middle' font-size='11' style='fill:var(--faint)'>${lbl}</text>`;
-  }
+  });
   // data line, split where there are gaps (device was off)
   let seg = [], segs = [];
   pts.filter(p => p[0] >= t0).forEach((p, i, a) => {
@@ -1072,7 +1092,7 @@ function drawChart(){
   const n = pts.filter(p => p[0] >= t0).length;
   document.getElementById('chartNote').textContent =
     n ? '' : (hist.now < 1700000000 ? 'Waiting for the clock to sync (needs internet)...'
-           : 'No data yet - the first point appears after ' + (range=='day' ? '5 minutes.' : '1 hour.'));
+           : 'No data yet - the first point appears after ' + RANGES[range].note + '.');
 }
 
 window.addEventListener('load', () => {
