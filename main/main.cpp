@@ -10,6 +10,7 @@
 #include "user-tank.h"     // tank sizes -> litres and percent
 #include "user-clock.h"    // real time + time zone
 #include "user-lock.h"     // optional PIN for the settings
+#include "user-beacon.h"   // UDP broadcast of the litres for the tank display
 #include "A02YYUW.h"       // Ultrasonic distance sensor driver
 
 HardwareSerial mySerial(1);           // UART1 for the sensor
@@ -73,6 +74,7 @@ void loop() {
     updateSensorData(distance, percent);
     addHistorySample(percent);
     showWaterLevel(distance, percent, litres);
+    beaconLoop(litres);
 
     if (isLedAutoMode()) {
       if (percent < 20)       ledOn(255, 0, 0);
