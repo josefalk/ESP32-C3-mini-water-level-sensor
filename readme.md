@@ -360,7 +360,7 @@ Settings stored in flash (they survive restarts and firmware updates):
 
 | Problem | What to check |
 |---------|---------------|
-| OLED shows `No reading` | Sensor wiring: TX and RX swapped? 5 V present? The sensor needs a clear path to the water; foam or a pipe that's too narrow gives bad echoes. |
+| OLED shows `No reading` | Sensor wiring: TX and RX swapped? Press **Settings > Tank Setup > Sensor wiring > Swap RX / TX**, then Save, instead of re-soldering. 5 V present? The sensor needs a clear path to the water; foam or a pipe that's too narrow gives bad echoes. |
 | Level always 0 % or 100 % | **Tank Setup:** check the tank height and sensor gap. The check line under the button shows the depth the board calculates. |
 | Board doesn't join Wi-Fi | The ESP32-C3 only supports **2.4 GHz** networks. The serial monitor lists the networks it can see. If yours is visible, the password is probably wrong. |
 | `watertank.local` doesn't open | Use the IP address from the OLED. Some phones and Windows PCs are slow to find `.local` names. |

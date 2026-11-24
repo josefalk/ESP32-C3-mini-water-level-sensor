@@ -15,6 +15,7 @@
 #include "user-networks.h"
 #include "user-clock.h"
 #include "user-lock.h"
+#include "user-sensor.h"
 
 // Network name of the device: the web page is at http://watertank.local
 // and OTA uploads go to watertank.local (see platformio.ini).
@@ -108,6 +109,8 @@ void handleNotFound();
 void handleGetTank();
 void handleSetTank();
 void handleSetValve();
+void handleGetSensor();
+void handleSetSensor();
 int argIndex();
 void sendResult(const String &err);
 bool requirePin();
@@ -176,6 +179,8 @@ void initWiFi() {
   server.on("/tank", HTTP_GET, handleGetTank);
   server.on("/tank", HTTP_POST, handleSetTank);
   server.on("/tank/valve", HTTP_POST, handleSetValve);
+  server.on("/sensor", HTTP_GET, handleGetSensor);
+  server.on("/sensor", HTTP_POST, handleSetSensor);
   server.on("/api/level", HTTP_GET, handleApiLevel);
   server.on("/api/level.txt", HTTP_GET, handleApiLevelText);
   server.on("/time", HTTP_GET, handleGetTime);
@@ -637,6 +642,60 @@ void appendTankSection(String &html) {
 <button class='save-calibration' onclick='saveTank()'>Save Tank Setup</button>
 <p id='tankSummary' style='color:var(--text);font-size:14px'></p>
 <div id='valveBox'></div>
+<h3 style='margin-top:25px'>Sensor wiring</h3>
+<p style='color:var(--muted);font-size:13px'>Shows <b>No reading</b> even though the sensor is powered and
+  has a clear view? The RX and TX wires may be swapped: press <b>Swap RX / TX</b>, then <b>Save</b>.
+  Changes apply right away, no restart needed.</p>
+<p id='sensorNow' style='color:var(--text);font-size:14px'></p>
+<div class='calibration-group'>
+  <div class='calibration-input'><label>RX pin (sensor TX wire):</label>
+    <select id='sRx' style='padding:10px;border:1px solid var(--border);border-radius:5px'></select></div>
+  <div class='calibration-input'><label>TX pin (sensor RX wire):</label>
+    <select id='sTx' style='padding:10px;border:1px solid var(--border);border-radius:5px'></select></div>
+</div>
+<button class='scan' onclick='swapSensorPins()'>⇄ Swap RX / TX</button>
+<button class='save-calibration' style='margin-top:8px' onclick='saveSensorPins()'>Save Sensor Pins</button>
+<p id='sensorMsg' style='font-size:14px;font-weight:bold;min-height:20px'></p>
+<script>
+let sensorSaved = {rx: -1, tx: -1};
+function showSensorNow(){
+  document.getElementById('sensorNow').innerHTML =
+    `Current: <b>RX = GPIO ${sensorSaved.rx}</b>, <b>TX = GPIO ${sensorSaved.tx}</b>`;
+}
+function loadSensorPins(){
+  fetch('/sensor').then(r=>r.json()).then(d=>{
+    const opts = d.pins.map(p => `<option value='${p}'>GPIO ${p}</option>`).join('');
+    ['sRx', 'sTx'].forEach(id => document.getElementById(id).innerHTML = opts);
+    document.getElementById('sRx').value = d.rx;
+    document.getElementById('sTx').value = d.tx;
+    sensorSaved = {rx: d.rx, tx: d.tx};
+    showSensorNow();
+  });
+}
+function swapSensorPins(){
+  const a = document.getElementById('sRx'), b = document.getElementById('sTx');
+  const t = a.value; a.value = b.value; b.value = t;
+  const m = document.getElementById('sensorMsg');
+  m.style.color = 'var(--muted)';
+  m.textContent = 'Swapped, not saved yet. Press Save Sensor Pins.';
+}
+function saveSensorPins(){
+  const rx = document.getElementById('sRx').value, tx = document.getElementById('sTx').value;
+  const m = document.getElementById('sensorMsg');
+  post('/sensor', `rx=${rx}&tx=${tx}`).then(r => {
+    if (r == 'OK'){
+      sensorSaved = {rx: +rx, tx: +tx};
+      showSensorNow();
+      m.style.color = '#4CAF50';
+      m.textContent = `✓ Saved and applied: RX = GPIO ${rx}, TX = GPIO ${tx}. Give the sensor a few seconds.`;
+    } else {
+      m.style.color = '#f44336';
+      m.textContent = '✗ ' + r;
+    }
+  });
+}
+window.addEventListener('load', loadSensorPins);
+</script>
 )HTML";
 }
 
@@ -1226,6 +1285,22 @@ void handleGetTank() {
   }
   json += "]}";
   server.send(200, "application/json", json);
+}
+
+// GET /sensor -> {"rx":4,"tx":7,"pins":[0,1,4,...]}   (pins = the GPIOs you may pick)
+void handleGetSensor() {
+  const int *list;
+  int n = getSensorPinChoices(list);
+  String json = "{\"rx\":" + String(getSensorRxPin()) + ",\"tx\":" + String(getSensorTxPin()) + ",\"pins\":[";
+  for (int i = 0; i < n; i++) json += (i ? "," : "") + String(list[i]);
+  json += "]}";
+  server.send(200, "application/json", json);
+}
+
+// POST /sensor  rx, tx (GPIO numbers)
+void handleSetSensor() {
+  if (!requirePin()) return;
+  sendResult(setSensorPins(server.arg("rx").toInt(), server.arg("tx").toInt()));
 }
 
 // POST /tank/valve  i (tank, 0 = tank 1), open (1/0)

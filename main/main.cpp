@@ -12,6 +12,7 @@
 #include "user-lock.h"     // optional PIN for the settings
 #include "user-beacon.h"   // UDP broadcast of the litres for the tank display
 #include "A02YYUW.h"       // Ultrasonic distance sensor driver
+#include "user-sensor.h"   // RX/TX swap option
 
 HardwareSerial mySerial(1);           // UART1 for the sensor
 A02YYUW sensor(mySerial, 4, 7);       // ESP RX=GPIO4 (<- sensor TX), ESP TX=GPIO7 (-> sensor RX)
@@ -45,6 +46,7 @@ int failStreak = 0;
 
 void setup() {
   Serial.begin(115200);
+  initSensorWiring(sensor); // saved RX/TX swap choice (before begin)
   sensor.begin(9600);
 
   initLED();

@@ -23,6 +23,7 @@ Each feature is a `user-<name>.h/.cpp` pair with an `init<Name>()` called from `
 | `user-wifi.*` | Non-blocking connection manager (scan → try saved networks in order → setup AP; 10 min check for a higher network), reset button, `WebServer` routes, the whole HTML page, mDNS, OTA, NTP. |
 | `user-screen.*` | U8g2 72x40 OLED, 3 rows (IP / reading / bar), screen toggle button. |
 | `user-led.*` | Onboard LED, manual/auto modes. |
+| `user-sensor.*` | Sensor UART pins (RX/TX) chosen in Settings, saved in flash (`"sensor"`), applied live; includes a swap option. |
 
 Keep module internals in an anonymous `namespace {}` (as in `user-tank.cpp` and `user-history.cpp`), and expose only what the header declares.
 

@@ -17,8 +17,14 @@ public:
   void begin(unsigned long baud = 9600);
   float getDistance();          // cm, or -1 if no valid reading
 
+  // Use other pins (or the same two swapped). Takes effect at once: restarts
+  // the UART if it is already running.
+  void setPins(int rxPin, int txPin);
+
 private:
   HardwareSerial &serial;
   int rxPin, txPin;
+  bool started = false;
+  unsigned long baudRate = 9600;
   float readFrame(bool trigger, unsigned long timeoutMs);
 };

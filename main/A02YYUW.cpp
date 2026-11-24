@@ -8,7 +8,19 @@ A02YYUW::A02YYUW(HardwareSerial &serial, int rxPin, int txPin)
   : serial(serial), rxPin(rxPin), txPin(txPin) {}
 
 void A02YYUW::begin(unsigned long baud) {
+  baudRate = baud;
+  started = true;
   serial.begin(baud, SERIAL_8N1, rxPin, txPin);
+}
+
+void A02YYUW::setPins(int rx, int tx) {
+  if (rx == rxPin && tx == txPin) return;
+  rxPin = rx;
+  txPin = tx;
+  if (started) {
+    serial.end();
+    begin(baudRate);
+  }
 }
 
 float A02YYUW::getDistance() {
